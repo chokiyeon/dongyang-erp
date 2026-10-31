@@ -2,6 +2,7 @@ import {readFile,writeFile,mkdir,copyFile} from "node:fs/promises";
 import {chromium} from "@playwright/test";
 const output="/workspace/artifacts";
 const screens=[
+ ["급여대장 · 원본 엑셀 배치","payroll-review","인사"],
  ["예산안 · 원본 엑셀 배치","company-budget","자금"],
  ["입출금 장부 · 원본 엑셀 배치","unified-ledger","자금"],
  ["송금 준비표","transfer-preparation","자금"],
@@ -9,7 +10,7 @@ const screens=[
  ["회사 통장 간 이체","bank-transfers","자금"],
  ["증빙·원본 파일","documents","자료"],
  ["공사별 손익계산서","project-profit-statement","공사"],
- ["직원별 급여 검토","payroll-review","인사"],
+
  ["총원가 확인·공사 배부","source-costs","공사"],
  ["자재·재고 관리","inventory","자재"],
  ["차량·과태료 관리","vehicles","차량"],

@@ -185,3 +185,18 @@ a:focus-visible { outline: 3px solid #2563eb; outline-offset: 4px; }
 .ledger-original .ledger-description { min-width: 190px; max-width: 300px; overflow-wrap: anywhere; }
 .ledger-original .ledger-remark { min-width: 110px; }
 .ledger-original td:nth-child(6), .ledger-original th:nth-child(6), .ledger-original td:nth-child(9), .ledger-original th:nth-child(9) { border-left: 2px solid #a5b6c7; }
+.payroll-paper { border: 1px solid #acbdce; background: white; }
+.payroll-paper-heading { padding: 18px 14px 12px; }
+.payroll-paper-heading h2 { text-align: center; font-size: 22px; font-weight: 700; letter-spacing: .2em; color: #223c57; }
+.payroll-paper-heading p { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 12px; font-size: 12px; }
+.payroll-groups { display: grid; grid-template-columns: repeat(4, 1fr); background: #dce8f2; border-top: 1px solid #acbdce; text-align: center; font-size: 12px; font-weight: 600; }
+.payroll-groups span { padding: 8px; border-right: 1px solid #acbdce; }
+.payroll-register { min-width: 2200px; }
+.payroll-register td { min-width: 80px; }
+.payroll-register td:nth-child(17) { min-width: 210px; }
+.daily-payroll-register { min-width: 2450px; }
+.daily-payroll-register td:nth-child(2) { min-width: 105px; }
+.daily-payroll-register td:nth-child(3) { min-width: 180px; }
+.daily-payroll-register td:nth-child(n+5) { min-width: 48px; }
+.payroll-paper-note { padding: 10px 14px; font-size: 11px; line-height: 1.7; color: #62788e; }
+.payroll-register td:nth-child(2), .daily-payroll-register td:nth-child(2) { position: sticky; left: 0; background: #f5f8fc; z-index: 1; border-right: 2px solid #afc0d2; }
