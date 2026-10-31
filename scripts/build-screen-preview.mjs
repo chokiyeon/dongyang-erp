@@ -2,6 +2,8 @@ import {readFile,writeFile,mkdir,copyFile} from "node:fs/promises";
 import {chromium} from "@playwright/test";
 const output="/workspace/artifacts";
 const screens=[
+ ["예산안 · 원본 엑셀 배치","company-budget","자금"],
+ ["입출금 장부 · 원본 엑셀 배치","unified-ledger","자금"],
  ["송금 준비표","transfer-preparation","자금"],
  ["송금 검토·구두승인","transfer-approvals","자금"],
  ["회사 통장 간 이체","bank-transfers","자금"],

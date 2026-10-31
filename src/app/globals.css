@@ -153,3 +153,35 @@ a:focus-visible { outline: 3px solid #2563eb; outline-offset: 4px; }
 @media(min-width:1450px) { .erp-ledger-filters { grid-template-columns:repeat(6,minmax(0,1fr)) auto; } }
 @media(max-width:760px) { .erp-ledger-filters { grid-template-columns:repeat(2,minmax(0,1fr)); padding:9px; } }
 @media print { .erp-ledger-scroll { max-height:none; overflow:visible; } }
+
+/* Company budget follows the uploaded A:I cash / notes / paired-flow worksheet. */
+.budget-holdings { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-bottom: 16px; border: 1px solid #b7c5d4; }
+.budget-holdings > section { min-width: 0; border: 0; border-radius: 0; }
+.budget-holdings > section + section { border-left: 1px solid #b7c5d4; }
+.budget-sheet-scroll { overflow-x: auto; }
+.budget-sheet { width: 100%; min-width: 1120px; table-layout: fixed; border-collapse: collapse; font-size: 12px; }
+.budget-sheet th, .budget-sheet td { padding: 9px 7px; border: 1px solid #c5ced8; vertical-align: top; }
+.budget-sheet thead th { background: #dae7f1; color: #203e5b; text-align: center; }
+.budget-sheet td:nth-child(5), .budget-sheet th:nth-child(5) { border-left: 2px solid #a5b6c7; }
+.budget-sheet td:nth-child(9), .budget-sheet th:nth-child(9) { border-left: 2px solid #a5b6c7; }
+.budget-date-col { width: 58px; }
+.budget-category-col { width: 86px; }
+.budget-money-col { width: 125px; }
+.budget-balance-col { width: 138px; }
+.budget-date { white-space: nowrap; text-align: center; color: #53687d; }
+.budget-money { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+.budget-detail { overflow-wrap: anywhere; }
+.budget-state { display: block; width: fit-content; margin-top: 5px; padding: 1px 5px; background: #f1f5f9; color: #52667a; font-size: 10px; }
+.budget-actual { background: #e4f2eb; color: #216344; }
+.budget-opening { background: #f2f6fa; font-weight: 600; }
+.budget-month { background: #e4edf4; color: #294a66; font-weight: 700; }
+.budget-month-total { background: #eef4e8; font-weight: 700; }
+.budget-balance { background: #f8fafc; font-weight: 600; }
+.budget-negative { color: #b91c1c; }
+@media (max-width: 900px) { .budget-holdings { grid-template-columns: 1fr; } .budget-holdings > section + section { border-left: 0; border-top: 1px solid #b7c5d4; } }
+.budget-sheet .budget-month td:first-child, .budget-sheet .budget-month-total td:first-child { white-space: nowrap; font-size: 11px; }
+.ledger-original { min-width: 1180px; }
+.ledger-original thead { background: #dae7f1; }
+.ledger-original .ledger-description { min-width: 190px; max-width: 300px; overflow-wrap: anywhere; }
+.ledger-original .ledger-remark { min-width: 110px; }
+.ledger-original td:nth-child(6), .ledger-original th:nth-child(6), .ledger-original td:nth-child(9), .ledger-original th:nth-child(9) { border-left: 2px solid #a5b6c7; }

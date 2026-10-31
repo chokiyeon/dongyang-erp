@@ -95,7 +95,7 @@ test("로그인·회사·거래처·현장·계좌 등록과 수정", async ({ p
       await expect(page.getByRole("cell", { name: "10,500,000원", exact: true }).first()).toBeVisible();
       await expect(page.getByRole("heading", { name: "월별 자금 예산안", exact: true })).toBeVisible();
       await expect(page.locator('table[data-erp-report-title="월별 자금 예산안"] tbody tr')).toHaveCount(3);
-      await page.screenshot({ path: "/workspace/artifacts/erp-company-budget.png", fullPage: true });
+      await page.screenshot({ path: "/tmp/dongyang-erp-budget-smoke.png", fullPage: true });
       await page.getByRole("link", { name: "6개월", exact: true }).click();
       await expect(page.getByRole("heading", { name: "6개월 잔액 전망" })).toBeVisible();
     }
@@ -184,7 +184,16 @@ test("로그인·회사·거래처·현장·계좌 등록과 수정", async ({ p
     await expect(page.getByRole("status")).toHaveText("저장했습니다.");
     expect(await db.bankTransaction.count({ where: { description: `LB-${tag} 엑셀 자재비` } })).toBe(1);
     await page.goto(`/ledger?q=LB-${tag}`);
-    if (!companyExisted) await page.screenshot({ path: "/tmp/dongyang-erp-unified-ledger.png", fullPage: true });
+    const loanAccount = await db.bankAccount.findFirstOrThrow({ where: { companyId: COMPANY_ID, label: accountName } });
+    await db.bankTransaction.create({ data: { accountId: loanAccount.id, tradedDate: new Date(`${new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date())}T00:00:00Z`), direction: "IN", amount: "500000", description: `LB-${tag} 차입금 입금`, legacyIncomingType: "LOAN" } });
+    await page.reload();
+    const ledgerTable = page.locator('table[data-erp-report-title="입출금 장부"]');
+    await expect(ledgerTable.getByRole("columnheader")).toHaveText(["날짜", "회계코드", "은행", "계좌", "내역", "입금액 (차입금)", "입금액 (일반)", "출금액", "해당 계좌 잔액", "비고", "수정"]);
+    const loanRow = ledgerTable.getByRole("row").filter({ hasText: `LB-${tag} 차입금 입금` });
+    await expect(loanRow.locator("td").nth(5)).toHaveText("500,000원"); await expect(loanRow.locator("td").nth(6)).toHaveText("—");
+    await expect(page.getByLabel("장부 정렬")).toHaveValue("asc");
+    if (!companyExisted) { await page.screenshot({ path: "/tmp/dongyang-erp-unified-ledger.png", fullPage: true }); await page.screenshot({ path: "/workspace/artifacts/erp-unified-ledger.png", fullPage: true }); }
+
     await page.getByRole("combobox", { name: "조회 은행", exact: true }).selectOption("전북은행");
     await page.locator(".erp-ledger-filters").getByRole("button", { name: "조회", exact: true }).click();
     await expect(page.locator(".erp-ledger-scroll").getByRole("row").filter({ hasText: "하나은행" })).toHaveCount(0);
