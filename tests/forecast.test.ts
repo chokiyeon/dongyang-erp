@@ -22,6 +22,11 @@ test("이미 잔액에 포함된 실적을 제외하고 일부 지급·입금 �
   assert.equal(result.rows.at(-1)?.confirmedBalance, 3000000n);
   assert.equal(result.rows.at(-1)?.allBalance, 5000000n);
   assert.equal(result.endDate, "2026-12-31");
+  assert.equal(result.monthlyRows.length, 3);
+  assert.deepEqual(result.monthlyRows[0], { month: "2026-10", openingBalance: 10000000n, openingAllBalance: 10000000n, actualIn: 0n, actualOut: 6000000n, confirmedIn: 3000000n, estimatedIn: 2000000n, expectedOut: 4000000n, confirmedBalance: 3000000n, allBalance: 5000000n });
+  assert.equal(result.monthlyRows[1].openingBalance, 3000000n);
+  assert.equal(result.monthlyRows[1].openingAllBalance, 5000000n);
+  assert.equal(result.monthlyRows[2].allBalance, 5000000n);
   assert.equal(result.firstShortage, null);
 });
 

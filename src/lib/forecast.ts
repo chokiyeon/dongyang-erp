@@ -65,5 +65,22 @@ export function buildForecast(baseline: { baseDate: Date; amount: Money }, plans
     allBalance += e.actualIn - e.actualOut + e.expectedIn - e.expectedOut;
     return { ...e, confirmedBalance, allBalance };
   });
-  return { rows, firstDate, endDate, overdueCount, firstShortage: BigInt(baseline.amount.toFixed(0)) < 0n ? base : rows.find((r) => r.confirmedBalance < 0n)?.date ?? null };
+  const monthlyRows: { month: string; openingBalance: bigint; openingAllBalance: bigint; actualIn: bigint; actualOut: bigint; confirmedIn: bigint; estimatedIn: bigint; expectedOut: bigint; confirmedBalance: bigint; allBalance: bigint }[] = [];
+  for (const row of rows) {
+    const month = row.date.slice(0, 7);
+    let monthly = monthlyRows.at(-1);
+    if (!monthly || monthly.month !== month) {
+      const previous = monthly;
+      monthly = { month, openingBalance: previous?.confirmedBalance ?? BigInt(baseline.amount.toFixed(0)), openingAllBalance: previous?.allBalance ?? BigInt(baseline.amount.toFixed(0)), actualIn: 0n, actualOut: 0n, confirmedIn: 0n, estimatedIn: 0n, expectedOut: 0n, confirmedBalance: row.confirmedBalance, allBalance: row.allBalance };
+      monthlyRows.push(monthly);
+    }
+    monthly.actualIn += row.actualIn;
+    monthly.actualOut += row.actualOut;
+    monthly.confirmedIn += row.confirmedIn;
+    monthly.estimatedIn += row.expectedIn - row.confirmedIn;
+    monthly.expectedOut += row.expectedOut;
+    monthly.confirmedBalance = row.confirmedBalance;
+    monthly.allBalance = row.allBalance;
+  }
+  return { rows, monthlyRows, firstDate, endDate, overdueCount, firstShortage: BigInt(baseline.amount.toFixed(0)) < 0n ? base : rows.find((r) => r.confirmedBalance < 0n)?.date ?? null };
 }

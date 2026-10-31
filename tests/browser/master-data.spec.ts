@@ -93,6 +93,9 @@ test("로그인·회사·거래처·현장·계좌 등록과 수정", async ({ p
       await expect(page).toHaveURL(/\/cash\?saved=1$/);
       await page.goto("/forecast");
       await expect(page.getByRole("cell", { name: "10,500,000원", exact: true }).first()).toBeVisible();
+      await expect(page.getByRole("heading", { name: "월별 자금 예산안", exact: true })).toBeVisible();
+      await expect(page.locator('table[data-erp-report-title="월별 자금 예산안"] tbody tr')).toHaveCount(3);
+      await page.screenshot({ path: "/workspace/artifacts/erp-company-budget.png", fullPage: true });
       await page.getByRole("link", { name: "6개월", exact: true }).click();
       await expect(page.getByRole("heading", { name: "6개월 잔액 전망" })).toBeVisible();
     }
