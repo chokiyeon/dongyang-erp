@@ -1,0 +1,16 @@
+"use client";
+import { useState } from "react";
+import { RecordForm } from "./record-form";
+import { Field, Select } from "./fields";
+import { PAYMENT_CATEGORIES, type PaymentAllocationInput, type PaymentCategoryKey } from "@/lib/payment-allocation-types";
+import { saveAllocationsAction } from "@/app/(workspace)/project-costs/actions";
+export function PaymentAllocationEditor({ transactionId, version, requestId, amount, initial, projects }: { transactionId: string; version: number; requestId: string; amount: string; initial: PaymentAllocationInput[]; projects: { id: string; code: string; name: string; active: boolean }[] }) {
+  const [rows, setRows] = useState(initial);
+  const total = rows.reduce((sum, r) => sum + (/^(0|[1-9]\d{0,19})$/.test(r.amount) ? BigInt(r.amount) : 0n), 0n);
+  function update(index: number, value: Partial<PaymentAllocationInput>) { setRows(rows.map((r, i) => i === index ? { ...r, ...value } : r)); }
+  return <RecordForm action={saveAllocationsAction} label="현장 배분 저장"><input type="hidden" name="transactionId" value={transactionId} /><input type="hidden" name="version" value={version} /><input type="hidden" name="requestId" value={requestId} /><input type="hidden" name="allocations" value={JSON.stringify(rows)} />
+  <p className="font-semibold">출금 {BigInt(amount).toLocaleString()}원 · 배분 {total.toLocaleString()}원 · 미배분 {(BigInt(amount) - total).toLocaleString()}원</p>
+  {total > BigInt(amount) && <p role="alert" className="text-red-700">배분 합계가 출금액을 초과합니다.</p>}
+  {rows.map((r, i) => <fieldset key={i} className="space-y-3 rounded border border-slate-200 p-3"><legend>배분 {i + 1}</legend><Select label={`배분 ${i + 1} 지급 구분`} value={r.category} onChange={(e) => update(i, { category: e.target.value as PaymentCategoryKey, ...(e.target.value === "COMPANY" ? { projectId: "" } : {}) })}>{Object.entries(PAYMENT_CATEGORIES).map(([k,v]) => <option key={k} value={k}>{v}</option>)}</Select><Select label={`배분 ${i + 1} 현장`} value={r.projectId} disabled={r.category === "COMPANY"} required={r.category !== "COMPANY"} onChange={(e) => update(i, { projectId: e.target.value })}><option value="">{r.category === "COMPANY" ? "본사·공통·공사 외" : "현장 선택"}</option>{projects.map((p) => <option key={p.id} value={p.id} disabled={!p.active && !initial.some((a) => a.projectId === p.id)}>{p.code} · {p.name}{!p.active ? " (사용 중지)" : ""}</option>)}</Select><Field label={`배분 ${i + 1} 금액 (원)`} required inputMode="numeric" maxLength={20} value={r.amount} onChange={(e) => update(i, { amount: e.target.value })} /><Field label={`배분 ${i + 1} 메모`} maxLength={200} value={r.note} onChange={(e) => update(i, { note: e.target.value })} /><button type="button" className="erp-button" onClick={() => setRows(rows.filter((_, index) => index !== i))}>배분 {i + 1} 삭제</button></fieldset>)}
+  <button type="button" className="erp-button" disabled={rows.length >= 20} onClick={() => setRows([...rows, { projectId: "", category: "MATERIAL", amount: "", note: "" }])}>배분 행 추가</button><p className="text-xs text-slate-500">최대 20행. 일부만 배분할 수 있습니다. 모든 행을 삭제해 저장하면 기존 배분을 해제합니다.</p><Field label="배분·수정 사유" name="reason" required maxLength={300} /><p className="text-xs text-slate-500">은행 출금액을 나눠 기록합니다. 부가세 포함 여부·급여 공제액을 조정한 세무 원가가 아니며, 계정과목은 변경하지 않습니다.</p></RecordForm>;
+}

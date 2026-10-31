@@ -1,0 +1,992 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Company {
+  sourceCostReviews SourceCostReview[]
+  taxEstimates CorporateTaxEstimate[]
+  accountingPackages AccountingPackage[]
+  financeChanges FinanceChange[]
+  materials MaterialItem[]
+  stockLocations StockLocation[]
+  vehicles Vehicle[]
+  employees Employee[]
+  recurringTemplates RecurringPaymentTemplate[]
+  recurringGenerations RecurringGeneration[]
+  receivedNotes ReceivedNote[]
+  issuedNotes IssuedNote[]
+  tradeDocuments TradeDocument[]
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  version Int @default(0)
+  representatives String[] @default([])
+  baselineVersion Int @default(0)
+  cashBaselines CashBaseline[]
+  cashPlans CashPlan[]
+  partners Partner[]
+  classificationBatches ClassificationBatch[]
+  accounts  BankAccount[]
+  projects  Project[]
+}
+
+model BankAccount {
+  issuedNotes IssuedNote[]
+  id            String   @id @default(cuid())
+  companyId     String
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  accountingCode String?
+  bankName      String
+  label         String
+  active        Boolean  @default(true)
+  version       Int      @default(0)
+  transactions BankTransaction[]
+  currency      String   @default("KRW")
+  overdraftLimit Decimal? @db.Decimal(20, 0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([companyId, label])
+}
+
+enum ProjectStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  SETTLED
+}
+
+model Project {
+  stockLocations StockLocation[]
+  vehicleAssignments VehicleAssignment[]
+  vehicleExpenses VehicleExpense[]
+  workRecords WorkRecord[]
+  recurringTemplates RecurringPaymentTemplate[]
+  monthlyPayments MonthlyPayment[]
+  receivedNotes ReceivedNote[]
+  issuedNotes IssuedNote[]
+  profitVersion Int @default(0)
+  remainingMaterial Decimal? @db.Decimal(20,0)
+  remainingLabor Decimal? @db.Decimal(20,0)
+  remainingOther Decimal? @db.Decimal(20,0)
+  remainingOverhead Decimal? @db.Decimal(20,0)
+  unapprovedAdditional Decimal? @db.Decimal(20,0)
+  profitReviewedAt DateTime?
+  profitBasis String?
+  costEntries ProjectCostEntry[]
+  profitChanges ProjectProfitChange[]
+  tradeDocuments TradeDocument[]
+  materialBudget Decimal? @db.Decimal(20, 0)
+  laborBudget Decimal? @db.Decimal(20, 0)
+  otherBudget Decimal? @db.Decimal(20, 0)
+  budgetVersion Int @default(0)
+  budgetChanges ProjectBudgetChange[]
+  paymentAllocations PaymentAllocation[]
+  id        String        @id @default(cuid())
+  companyId String
+  company   Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  code      String
+  name      String
+  clientId  String?
+  client    Partner?      @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  workTypes String[]      @default([])
+  manager   String?
+  address   String?
+  startDate DateTime?     @db.Date
+  endDate   DateTime?     @db.Date
+  contractAmount Decimal? @db.Decimal(20, 0)
+  active    Boolean       @default(true)
+  version   Int           @default(0)
+  status    ProjectStatus @default(PLANNED)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@unique([companyId, code])
+}
+
+enum PartnerType {
+  CLIENT
+  SUPPLIER
+  BOTH
+}
+
+model Partner {
+  paymentTerm PaymentTerm @default(MANUAL)
+  paymentMethod PaymentMethod @default(UNCONFIRMED)
+  payeeBank String?
+  payeeAccount String?
+  payeeHolder String?
+  payeeVerifiedAt DateTime?
+  paymentChanges PartnerPaymentChange[]
+  recurringTemplates RecurringPaymentTemplate[]
+  monthlyPayments MonthlyPayment[]
+  receivedNotes ReceivedNote[]
+  issuedNotes IssuedNote[]
+  tradeDocuments TradeDocument[]
+  id        String      @id @default(cuid())
+  companyId String
+  company   Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  code      String
+  name      String
+  type      PartnerType @default(BOTH)
+  contact   String?
+  note      String?
+  active    Boolean     @default(true)
+  version   Int         @default(0)
+  projects  Project[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@unique([companyId, code])
+}
+
+enum CashDirection {
+  IN
+  OUT
+}
+
+enum CashCertainty {
+  CONFIRMED
+  ESTIMATED
+}
+
+model CashPlan {
+  payroll PayrollPayment?
+  monthlyPayment MonthlyPayment?
+  receivedNote ReceivedNote?
+  issuedNote IssuedNote?
+  id          String        @id @default(cuid())
+  companyId   String
+  company     Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  direction   CashDirection
+  certainty   CashCertainty @default(ESTIMATED)
+  title       String
+  category    String
+  plannedDate DateTime      @db.Date
+  requestId String @unique @default(uuid())
+  plannedAmount Decimal     @db.Decimal(20, 0)
+  completedAt DateTime?
+  completionNote String?
+  version     Int           @default(0)
+  settlements CashSettlement[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([companyId, plannedDate])
+}
+
+model CashSettlement {
+  bankTransactionId String?
+  bankTransaction BankTransaction? @relation(fields: [bankTransactionId], references: [id], onDelete: Restrict)
+  voidedAt DateTime?
+  voidReason String?
+  id           String   @id @default(cuid())
+  planId       String
+  plan         CashPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+  finalized Boolean @default(false)
+  processedDate DateTime @db.Date
+  amount       Decimal  @db.Decimal(20, 0)
+  note         String?
+  requestId    String   @unique
+  createdAt    DateTime @default(now())
+}
+
+model CashBaseline {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  revision  Int
+  baseDate  DateTime @db.Date
+  amount    Decimal  @db.Decimal(20, 0)
+  note      String
+  createdAt DateTime @default(now())
+
+  @@unique([companyId, revision])
+}
+
+model BankTransaction {
+  cashSettlements CashSettlement[]
+  settlementVersion Int @default(0)
+  tradeLinks TradeBankLink[]
+  allocationVersion Int @default(0)
+  paymentAllocations PaymentAllocation[]
+  allocationChanges PaymentAllocationChange[]
+  id          String        @id @default(cuid())
+  accountId   String
+  account     BankAccount   @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  tradedDate  DateTime      @db.Date
+  tradedTime  String?
+  description String
+  classificationVersion Int @default(0)
+  classificationChanges BankClassificationChange[]
+  classificationBatchItems ClassificationBatchItem[]
+  businessType String?
+  accountingCodeId String?
+  accountingCode AccountingCode? @relation(fields: [accountingCodeId], references: [id], onDelete: Restrict)
+  direction   CashDirection
+  amount      Decimal       @db.Decimal(20, 0)
+  bankBalance Decimal?      @db.Decimal(20, 0)
+  internalTransfer Boolean  @default(false)
+  requestId   String        @unique @default(uuid())
+  importKey   String?       @unique
+  source      String        @default("MANUAL")
+  legacySheet String?
+  legacyRow Int?
+  legacyCategory String?
+  legacyBankLabel String?
+  legacyIncomingType String?
+  legacyLedgerBalance Decimal? @db.Decimal(20, 0)
+  createdAt   DateTime      @default(now())
+
+  @@index([accountId, tradedDate])
+}
+
+model AccountingCode {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  group       String
+  note        String
+  active      Boolean  @default(true)
+  version     Int      @default(0)
+  transactions BankTransaction[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AccountingCodeTransition {
+  id        String   @id
+  snapshot  Json
+  createdAt DateTime @default(now())
+}
+
+model BankClassificationChange {
+  id            String   @id @default(cuid())
+  transactionId String
+  transaction   BankTransaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  previousCodeId String?
+  newCodeId      String?
+  previousBusinessType String?
+  newBusinessType String?
+  reason        String
+  createdAt     DateTime @default(now())
+}
+
+model ClassificationBatch {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  requestId   String @unique
+  fingerprint String
+  targetCodeId String?
+  targetBusinessType String?
+  targetLabel String
+  reason      String
+  items       ClassificationBatchItem[]
+  undoneAt    DateTime?
+  undoReason  String?
+  createdAt   DateTime @default(now())
+}
+
+model ClassificationBatchItem {
+  id          String @id @default(cuid())
+  batchId     String
+  batch       ClassificationBatch @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  transactionId String
+  transaction BankTransaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  previousCodeId String?
+  newCodeId String?
+  previousBusinessType String?
+  newBusinessType String?
+  previousInternalTransfer Boolean
+  newInternalTransfer Boolean
+  appliedVersion Int
+
+  @@unique([batchId, transactionId])
+}
+
+
+enum PaymentCategory {
+  MATERIAL
+  LABOR
+  OTHER
+  COMPANY
+}
+
+model PaymentAllocation {
+  id String @id @default(cuid())
+  transactionId String
+  transaction BankTransaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  projectId String?
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  category PaymentCategory
+  amount Decimal @db.Decimal(20, 0)
+  note String
+  @@index([transactionId])
+  @@index([projectId, category])
+}
+
+model PaymentAllocationChange {
+  id String @id @default(cuid())
+  transactionId String
+  transaction BankTransaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  requestId String @unique
+  fingerprint String
+  previous Json
+  next Json
+  reason String
+  createdAt DateTime @default(now())
+  @@index([transactionId, createdAt])
+}
+
+model ProjectBudgetChange {
+  id String @id @default(cuid())
+  projectId String
+  project Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  requestId String @unique
+  fingerprint String
+  previous Json
+  next Json
+  reason String
+  createdAt DateTime @default(now())
+  @@index([projectId, createdAt])
+}
+
+
+enum TradeKind {
+  SALE
+  PURCHASE
+}
+enum TradeTaxKind {
+  TAXABLE
+  ZERO
+  EXEMPT
+}
+enum TradeEvidence {
+  TAX_INVOICE
+  STATEMENT
+  OTHER
+}
+enum InputVatReview {
+  PENDING
+  DEDUCTIBLE
+  NONDEDUCTIBLE
+}
+model TradeDocument {
+  stockMovements StockMovement[]
+  paymentMethod PaymentMethod @default(UNCONFIRMED)
+  companyExpense Boolean @default(false)
+  monthlyPayment MonthlyPayment?
+  profitCategory ProjectCostCategory?
+  id String @id @default(cuid())
+  companyId String
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  kind TradeKind
+  reference String
+  title String
+  partnerId String
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  projectId String?
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  issuedDate DateTime @db.Date
+  dueDate DateTime? @db.Date
+  supplyAmount Decimal @db.Decimal(20,0)
+  taxAmount Decimal @db.Decimal(20,0)
+  grossAmount Decimal @db.Decimal(20,0)
+  settledAmount Decimal @default(0) @db.Decimal(20,0)
+  taxKind TradeTaxKind
+  evidence TradeEvidence
+  proofConfirmed Boolean @default(false)
+  inputVatReview InputVatReview @default(PENDING)
+  note String
+  version Int @default(0)
+  voidedAt DateTime?
+  voidReason String?
+  links TradeBankLink[]
+  changes TradeDocumentChange[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([companyId, kind, reference])
+  @@index([companyId, issuedDate])
+  @@index([projectId, kind])
+}
+model TradeDocumentChange {
+  id String @id @default(cuid())
+  documentId String
+  document TradeDocument @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  requestId String @unique
+  fingerprint String
+  previous Json
+  next Json
+  reason String
+  createdAt DateTime @default(now())
+  @@index([documentId, createdAt])
+}
+model TradeBankLink {
+  id String @id @default(cuid())
+  documentId String
+  document TradeDocument @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  transactionId String
+  transaction BankTransaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  amount Decimal @db.Decimal(20,0)
+  requestId String @unique
+  fingerprint String
+  note String
+  voidedAt DateTime?
+  voidReason String?
+  createdAt DateTime @default(now())
+  @@index([documentId, voidedAt])
+  @@index([transactionId, voidedAt])
+}
+
+
+enum ProjectCostCategory {
+  MATERIAL
+  LABOR
+  OTHER
+  OVERHEAD
+}
+model ProjectCostEntry {
+  sourceReviewId String?
+  sourceReview SourceCostReview? @relation(fields:[sourceReviewId],references:[id],onDelete:Restrict)
+  sourceConfirmed Boolean @default(true)
+  id String @id @default(cuid())
+  projectId String
+  project Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  reference String
+  title String
+  category ProjectCostCategory
+  incurredDate DateTime @db.Date
+  amount Decimal @db.Decimal(20,0)
+  voidedAt DateTime?
+  voidReason String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([projectId, reference])
+  @@unique([sourceReviewId, projectId])
+}
+model ProjectProfitChange {
+  id String @id @default(cuid())
+  projectId String
+  project Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  requestId String @unique
+  fingerprint String
+  previous Json
+  next Json
+  reason String
+  createdAt DateTime @default(now())
+  @@index([projectId, createdAt])
+}
+
+
+enum IssuedNoteStatus {
+  OPEN
+  SETTLED
+  VOID
+}
+model IssuedNote {
+  id String @id @default(cuid())
+  companyId String
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  reference String
+  partnerId String
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  projectId String?
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  accountId String
+  account BankAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  issuedDate DateTime @db.Date
+  dueDate DateTime @db.Date
+  amount Decimal @db.Decimal(20,0)
+  cashPlanId String @unique
+  cashPlan CashPlan @relation(fields: [cashPlanId], references: [id], onDelete: Restrict)
+  status IssuedNoteStatus @default(OPEN)
+  version Int @default(0)
+  settledDate DateTime? @db.Date
+  voidReason String?
+  note String
+  changes IssuedNoteChange[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([companyId, reference])
+  @@index([companyId, status, dueDate])
+}
+model IssuedNoteChange {
+  id String @id @default(cuid())
+  noteId String
+  note IssuedNote @relation(fields: [noteId], references: [id], onDelete: Restrict)
+  requestId String @unique
+  fingerprint String
+  previous Json
+  next Json
+  reason String
+  createdAt DateTime @default(now())
+  @@index([noteId, createdAt])
+}
+
+
+enum ReceivedNoteStatus {
+  HELD
+  COLLECTED
+  DISCOUNTED
+  MATURED
+  VOID
+}
+model ReceivedNote {
+  id String @id @default(cuid())
+  companyId String
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  reference String
+  partnerId String
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  projectId String?
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  receivedDate DateTime @db.Date
+  dueDate DateTime @db.Date
+  amount Decimal @db.Decimal(20,0)
+  cashPlanId String @unique
+  cashPlan CashPlan @relation(fields: [cashPlanId], references: [id], onDelete: Restrict)
+  status ReceivedNoteStatus @default(HELD)
+  version Int @default(0)
+  realizedDate DateTime? @db.Date
+  discountFee Decimal? @db.Decimal(20,0)
+  netProceeds Decimal? @db.Decimal(20,0)
+  maturityConfirmedAt DateTime?
+  voidReason String?
+  note String
+  changes ReceivedNoteChange[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([companyId, reference])
+  @@index([companyId, status, dueDate])
+}
+model ReceivedNoteChange {
+  id String @id @default(cuid())
+  noteId String
+  note ReceivedNote @relation(fields: [noteId], references: [id], onDelete: Restrict)
+  requestId String @unique
+  fingerprint String
+  previous Json
+  next Json
+  reason String
+  createdAt DateTime @default(now())
+  @@index([noteId, createdAt])
+}
+
+
+enum PaymentTerm {
+  MANUAL
+  IMMEDIATE
+  NEXT_MONTH_END
+}
+enum PaymentMethod {
+  UNCONFIRMED
+  BANK_TRANSFER
+  ISSUED_NOTE
+  OTHER
+}
+model PartnerPaymentChange {
+  id String @id @default(cuid())
+  partnerId String
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  previous Json
+  next Json
+  reason String
+  createdAt DateTime @default(now())
+  @@index([partnerId, createdAt])
+}
+model RecurringPaymentTemplate {
+  id String @id @default(cuid())
+  companyId String
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  reference String
+  title String
+  partnerId String
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  projectId String?
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  companyExpense Boolean @default(false)
+  category String
+  defaultAmount Decimal? @db.Decimal(20,0)
+  dueDay Int @default(0)
+  startMonth String
+  endMonth String?
+  active Boolean @default(true)
+  version Int @default(0)
+  months MonthlyPayment[]
+  changes RecurringPaymentChange[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([companyId, reference])
+}
+model MonthlyPayment {
+  id String @id @default(cuid())
+  templateId String
+  template RecurringPaymentTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  period String
+  title String
+  partnerId String
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  projectId String?
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  companyExpense Boolean @default(false)
+  dueDate DateTime @db.Date
+  amount Decimal? @db.Decimal(20,0)
+  version Int @default(0)
+  confirmed Boolean @default(false)
+  voidedAt DateTime?
+  cashPlanId String? @unique
+  cashPlan CashPlan? @relation(fields: [cashPlanId], references: [id], onDelete: Restrict)
+  documentId String? @unique
+  document TradeDocument? @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  changes RecurringPaymentChange[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([templateId, period])
+}
+model RecurringPaymentChange {
+  id String @id @default(cuid())
+  templateId String
+  template RecurringPaymentTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  monthlyPaymentId String?
+  monthlyPayment MonthlyPayment? @relation(fields: [monthlyPaymentId], references: [id], onDelete: Restrict)
+  requestId String @unique
+  fingerprint String
+  previous Json
+  next Json
+  reason String
+  createdAt DateTime @default(now())
+}
+model RecurringGeneration {
+  id String @id @default(cuid())
+  companyId String
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  requestId String @unique
+  period String
+  count Int
+  createdAt DateTime @default(now())
+}
+
+
+enum EmploymentKind {
+  DAILY
+  MONTHLY
+}
+enum LaborRole {
+  NORMAL
+  SIGNAL
+}
+model Employee {
+  payeeBank String?
+  payeeAccount String?
+  payeeHolder String?
+  payeeVerifiedAt DateTime?
+  payrolls PayrollPayment[]
+  id String @id @default(cuid())
+  companyId String
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  code String
+  name String
+  kind EmploymentKind
+  startDate DateTime @db.Date
+  endDate DateTime? @db.Date
+  active Boolean @default(true)
+  version Int @default(0)
+  rates EmploymentRate[]
+  workRecords WorkRecord[]
+  changes LaborChange[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([companyId, code])
+}
+model EmploymentRate {
+  id String @id @default(cuid())
+  employeeId String
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  effectiveDate DateTime @db.Date
+  role LaborRole
+  amount Decimal @db.Decimal(20,0)
+  version Int @default(0)
+  voidedAt DateTime?
+  workRecords WorkRecord[]
+  createdAt DateTime @default(now())
+  @@index([employeeId, role, effectiveDate])
+}
+model WorkRecord {
+  id String @id @default(cuid())
+  employeeId String
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  projectId String
+  project Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  workedDate DateTime @db.Date
+  role LaborRole
+  units Decimal @db.Decimal(5,2)
+  rateId String
+  rate EmploymentRate @relation(fields: [rateId], references: [id], onDelete: Restrict)
+  rateAmount Decimal @db.Decimal(20,0)
+  amount Decimal @db.Decimal(20,0)
+  source String
+  version Int @default(0)
+  voidedAt DateTime?
+  voidReason String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([workedDate, projectId])
+  @@index([employeeId, workedDate])
+}
+model LaborChange {
+  id String @id @default(cuid())
+  employeeId String
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  requestId String @unique
+  fingerprint String
+  operation String
+  previous Json
+  next Json
+  reason String
+  createdAt DateTime @default(now())
+}
+
+model PayrollPayment {
+  id String @id @default(cuid())
+  employeeId String
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  period String
+  netAmount Decimal @db.Decimal(20,0)
+  dueDate DateTime @db.Date
+  basis String
+  snapshot Json
+  adjustmentReason String?
+  cashPlanId String @unique
+  cashPlan CashPlan @relation(fields: [cashPlanId], references: [id], onDelete: Restrict)
+  version Int @default(0)
+  voidedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([employeeId, period])
+}
+
+model Vehicle {
+  id String @id @default(cuid())
+  companyId String
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  plate String
+  name String
+  kind String
+  usage String
+  manager String?
+  insuranceDue DateTime? @db.Date
+  inspectionDue DateTime? @db.Date
+  active Boolean @default(true)
+  version Int @default(0)
+  assignments VehicleAssignment[]
+  expenses VehicleExpense[]
+  changes VehicleChange[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([companyId, plate])
+}
+model VehicleAssignment {
+  id String @id @default(cuid())
+  vehicleId String
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  projectId String?
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  companyExpense Boolean @default(false)
+  startDate DateTime @db.Date
+  endDate DateTime? @db.Date
+  driver String?
+  note String
+  version Int @default(0)
+  voidedAt DateTime?
+  createdAt DateTime @default(now())
+}
+model VehicleExpense {
+  id String @id @default(cuid())
+  vehicleId String
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  projectId String?
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  companyExpense Boolean @default(false)
+  reference String
+  category String
+  incurredDate DateTime @db.Date
+  dueDate DateTime? @db.Date
+  amount Decimal @db.Decimal(20,0)
+  title String
+  driver String?
+  authority String?
+  payer String
+  paymentStatus String
+  paidDate DateTime? @db.Date
+  evidence String
+  version Int @default(0)
+  voidedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([vehicleId, reference])
+}
+model VehicleChange {
+  id String @id @default(cuid())
+  vehicleId String
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  requestId String @unique
+  fingerprint String
+  operation String
+  previous Json
+  next Json
+  reason String
+  createdAt DateTime @default(now())
+}
+
+model MaterialItem {
+ id String @id @default(cuid())
+ companyId String
+ company Company @relation(fields:[companyId],references:[id],onDelete:Restrict)
+ code String
+ name String
+ unit String
+ active Boolean @default(true)
+ version Int @default(0)
+ movements StockMovement[]
+ changes StockChange[]
+ @@unique([companyId,code])
+}
+model StockLocation {
+ id String @id @default(cuid())
+ companyId String
+ company Company @relation(fields:[companyId],references:[id],onDelete:Restrict)
+ code String
+ name String
+ kind String
+ projectId String?
+ project Project? @relation(fields:[projectId],references:[id],onDelete:Restrict)
+ active Boolean @default(true)
+ version Int @default(0)
+ inbound StockMovement[] @relation("StockTo")
+ outbound StockMovement[] @relation("StockFrom")
+ changes StockLocationChange[]
+ @@unique([companyId,code])
+}
+model StockMovement {
+ id String @id @default(cuid())
+ sequence Int @unique @default(autoincrement())
+ materialId String
+ material MaterialItem @relation(fields:[materialId],references:[id],onDelete:Restrict)
+ reference String
+ movedDate DateTime @db.Date
+ kind String
+ fromId String?
+ from StockLocation? @relation("StockFrom",fields:[fromId],references:[id],onDelete:Restrict)
+ toId String?
+ to StockLocation? @relation("StockTo",fields:[toId],references:[id],onDelete:Restrict)
+ quantity Decimal @db.Decimal(20,4)
+ unitPrice Decimal? @db.Decimal(20,4)
+ supplyAmount Decimal? @db.Decimal(20,0)
+ documentId String?
+ document TradeDocument? @relation(fields:[documentId],references:[id],onDelete:Restrict)
+ sourceNote String
+ voidedAt DateTime?
+ createdAt DateTime @default(now())
+ @@unique([materialId,reference])
+ @@index([materialId,movedDate,sequence])
+}
+model StockChange {
+ id String @id @default(cuid())
+ materialId String
+ material MaterialItem @relation(fields:[materialId],references:[id],onDelete:Restrict)
+ requestId String @unique
+ fingerprint String
+ operation String
+ previous Json
+ next Json
+ reason String
+ createdAt DateTime @default(now())
+}
+model StockLocationChange {
+ id String @id @default(cuid())
+ locationId String
+ location StockLocation @relation(fields:[locationId],references:[id],onDelete:Restrict)
+ requestId String @unique
+ fingerprint String
+ previous Json
+ next Json
+ reason String
+ createdAt DateTime @default(now())
+}
+
+model CorporateTaxEstimate {
+ id String @id @default(cuid())
+ companyId String
+ company Company @relation(fields:[companyId],references:[id],onDelete:Restrict)
+ period String
+ assumptions Json
+ result Json
+ sourceReference String
+ version Int @default(0)
+ updatedAt DateTime @updatedAt
+ @@unique([companyId,period])
+}
+model AccountingPackage {
+ id String @id @default(cuid())
+ companyId String
+ company Company @relation(fields:[companyId],references:[id],onDelete:Restrict)
+ period String
+ revision Int
+ state String @default("DRAFT")
+ digest String
+ snapshot Json
+ version Int @default(0)
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@unique([companyId,period,revision])
+}
+model FinanceChange {
+ id String @id @default(cuid())
+ companyId String
+ company Company @relation(fields:[companyId],references:[id],onDelete:Restrict)
+ requestId String @unique
+ fingerprint String
+ operation String
+ entityId String
+ previous Json
+ next Json
+ reason String
+ createdAt DateTime @default(now())
+}
+
+model SourceCostReview {
+ needsReview Boolean @default(false)
+ id String @id @default(cuid())
+ companyId String
+ company Company @relation(fields:[companyId],references:[id],onDelete:Restrict)
+ sourceType String
+ sourceId String
+ totalAmount Decimal @db.Decimal(20,0)
+ commonAmount Decimal @db.Decimal(20,0)
+ basis String
+ incurredDate DateTime @db.Date
+ active Boolean @default(true)
+ version Int @default(0)
+ entries ProjectCostEntry[]
+ changes SourceCostChange[]
+ updatedAt DateTime @updatedAt
+ @@unique([companyId,sourceType,sourceId])
+}
+model SourceCostChange {
+ id String @id @default(cuid())
+ reviewId String
+ review SourceCostReview @relation(fields:[reviewId],references:[id],onDelete:Restrict)
+ requestId String @unique
+ fingerprint String
+ previous Json
+ next Json
+ reason String
+ createdAt DateTime @default(now())
+}

@@ -1,0 +1,39 @@
+# 유료 리소스입니다. Render 화면에서 요금을 확인한 뒤 생성하세요.
+# 기존 개발 DB/비밀번호를 사용하거나 업로드하지 않습니다.
+services:
+  - type: web
+    name: dongyang-erp
+    runtime: node
+    region: singapore
+    plan: starter
+    repo: https://github.com/chokiyeon/dongyang-erp
+    branch: main
+    autoDeploy: false
+    buildCommand: npm ci --include=dev && npm run db:generate && npm run build
+    preDeployCommand: npm run deploy:prepare
+    startCommand: npm run start:cloud
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 24
+      - key: NODE_ENV
+        value: production
+      - key: ERP_COOKIE_SECURE
+        value: "true"
+      - key: ERP_ADMIN_PASSWORD
+        sync: false
+      - key: ERP_SESSION_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dongyang-erp-db
+          property: connectionString
+
+databases:
+  - name: dongyang-erp-db
+    region: singapore
+    plan: basic-256mb
+    postgresMajorVersion: "17"
+    databaseName: dongyang_erp
+    user: dongyang
+    ipAllowList: []

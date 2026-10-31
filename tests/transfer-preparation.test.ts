@@ -1,0 +1,48 @@
+import "dotenv/config";
+import test from "node:test";
+import assert from "node:assert/strict";
+import {randomUUID} from "node:crypto";
+import {getDb} from "../src/lib/db";
+import {COMPANY_ID} from "../src/lib/constants";
+import {paymentDue,recurringDue,normalizePayeeAccount} from "../src/lib/payment-terms";
+import {saveMaster} from "../src/lib/master-data";
+import {saveTradeDocument} from "../src/lib/trades";
+import {transferPreparation} from "../src/lib/transfer-preparation";
+import {settleCashPlan,voidCashSettlement} from "../src/lib/cash";
+import {saveRecurringTemplate,generateRecurringMonth,confirmMonthlyPayment,voidMonthlyPayment} from "../src/lib/recurring-payments";
+const form=(values:Record<string,string>)=>{const f=new FormData();Object.entries(values).forEach(([k,v])=>f.set(k,v));return f;};
+test("9월 청구는 다음 달 말일·즉시·직접 기한을 구분하고 송금 계좌의 앞자리 0을 보존한다",()=>{
+ assert.equal(paymentDue("2026-09-15","NEXT_MONTH_END"),"2026-10-31");assert.equal(paymentDue("2026-12-01","NEXT_MONTH_END"),"2027-01-31");assert.equal(paymentDue("2026-09-15","IMMEDIATE"),"2026-09-15");assert.equal(paymentDue("2026-09-15","MANUAL"),null);assert.equal(recurringDue("2027-02",31),"2027-02-28");assert.equal(recurringDue("2028-02",0),"2028-02-29");assert.equal(normalizePayeeAccount("001-000-000000"),"001-000-000000");assert.throws(()=>normalizePayeeAccount("invalid-account"));
+});
+test("거래처 송금정보는 사유·계좌 확인과 변경 이력을 보존하고 지급기한을 계산한다",async()=>{
+ const db=getDb();const rollback=new Error("ROLLBACK");try{await assert.rejects(db.$transaction(async tx=>{
+  await tx.company.upsert({where:{id:COMPANY_ID},create:{id:COMPANY_ID,name:"검증 회사"},update:{}});const code=randomUUID().slice(0,8);const input=form({code,name:"송금 검증 거래처",type:"SUPPLIER",active:"on",paymentTerm:"NEXT_MONTH_END",paymentMethod:"BANK_TRANSFER",payeeBank:"검증은행",payeeAccount:"001-000-000000",payeeHolder:"검증 예금주",payeeConfirmed:"on"});
+  await assert.rejects(saveMaster(tx,"partners",input),/사유/);assert.equal(await tx.partner.count({where:{companyId:COMPANY_ID,code:code.toUpperCase()}}),0);input.set("paymentReason","통장 사본 대조");await saveMaster(tx,"partners",input);const partner=await tx.partner.findUniqueOrThrow({where:{companyId_code:{companyId:COMPANY_ID,code:code.toUpperCase()}}});assert.equal(partner.payeeAccount,"001-000-000000");assert.ok(partner.payeeVerifiedAt);
+  const project=await tx.project.create({data:{companyId:COMPANY_ID,code:randomUUID(),name:"송금 A현장"}});const values={version:"0",requestId:randomUUID(),kind:"PURCHASE",reference:randomUUID(),title:"9월 자재비",partnerId:partner.id,projectId:project.id,issuedDate:"2026-09-15",supplyAmount:"1000",taxAmount:"100",taxKind:"TAXABLE",evidence:"TAX_INVOICE",proofConfirmed:"on",inputVatReview:"PENDING",dueMode:"PARTNER",paymentMethod:"PARTNER",reason:"9월 청구 입력"};
+  const id=await saveTradeDocument(tx,form(values));const doc=await tx.tradeDocument.findUniqueOrThrow({where:{id}});assert.equal(doc.dueDate?.toISOString().slice(0,10),"2026-10-31");assert.equal(doc.paymentMethod,"BANK_TRANSFER");
+  const ready=await transferPreparation(tx,"2026-10-31");assert.ok(ready.ready.some(r=>r.id===`invoice:${id}`&&r.amount==="1100"&&r.account==="001-000-000000"));assert.ok(!(await transferPreparation(tx,"2026-10-30")).ready.some(r=>r.id===`invoice:${id}`));
+  const immediate=await saveTradeDocument(tx,form({...values,reference:randomUUID(),requestId:randomUUID(),dueMode:"IMMEDIATE"}));assert.equal((await tx.tradeDocument.findUniqueOrThrow({where:{id:immediate}})).dueDate?.toISOString().slice(0,10),"2026-09-15");
+  const note=await saveTradeDocument(tx,form({...values,reference:randomUUID(),requestId:randomUUID(),paymentMethod:"ISSUED_NOTE"}));const result=await transferPreparation(tx,"2026-10-31");assert.ok(!result.ready.some(r=>r.id===`invoice:${note}`));assert.ok(result.nonTransfer>=1);
+  input.set("id",partner.id);input.set("version","0");input.delete("payeeConfirmed");input.set("paymentReason","계좌 재확인 필요");await saveMaster(tx,"partners",input);const held=await transferPreparation(tx,"2026-10-31");assert.ok(held.held.find(r=>r.id===`invoice:${id}`)?.issues.includes("송금 계좌 확인 필요"));assert.equal(await tx.partnerPaymentChange.count({where:{partnerId:partner.id}}),2);throw rollback;
+ },{timeout:15000}),(e:unknown)=>e===rollback);}finally{await db.$disconnect();}
+});
+test("월세·공과금은 월별 중복 없이 준비하고 금액 미확인·매입 연결·지출 예정 재사용을 구분한다",async()=>{
+ const db=getDb();const rollback=new Error("ROLLBACK");try{await assert.rejects(db.$transaction(async tx=>{
+  await tx.company.upsert({where:{id:COMPANY_ID},create:{id:COMPANY_ID,name:"검증 회사"},update:{}});const partner=await tx.partner.create({data:{companyId:COMPANY_ID,code:randomUUID(),name:"정기 검증 거래처",type:"SUPPLIER",payeeBank:"검증은행",payeeAccount:"001-000-000000",payeeHolder:"검증 예금주",payeeVerifiedAt:new Date(),paymentMethod:"BANK_TRANSFER"}});const project=await tx.project.create({data:{companyId:COMPANY_ID,code:randomUUID(),name:"숙소 현장"}});
+  const templateValues={version:"0",requestId:randomUUID(),reference:randomUUID().slice(0,8),title:"숙소 월세",partnerId:partner.id,projectId:project.id,category:"RENT",defaultAmount:"500",dueDay:"0",startMonth:"2026-10",active:"on",reason:"월세 계약 확인"};const template=await saveRecurringTemplate(tx,form(templateValues));const electric=await saveRecurringTemplate(tx,form({...templateValues,requestId:randomUUID(),reference:randomUUID().slice(0,8),title:"숙소 전기요금",category:"ELECTRICITY",defaultAmount:""}));
+  const gen=form({requestId:randomUUID(),period:"2026-10"});assert.equal((await generateRecurringMonth(tx,gen)).count,2);assert.equal((await generateRecurringMonth(tx,gen)).count,2);gen.set("requestId",randomUUID());assert.equal((await generateRecurringMonth(tx,gen)).count,0);
+  let work=await transferPreparation(tx,"2026-10-31");assert.ok(work.held.some(r=>r.description==="숙소 전기요금"&&r.amount===""));const rentMonth=await tx.monthlyPayment.findUniqueOrThrow({where:{templateId_period:{templateId:template,period:"2026-10"}}});const electricity=await tx.monthlyPayment.findUniqueOrThrow({where:{templateId_period:{templateId:electric,period:"2026-10"}}});
+  const confirm=form({monthlyId:rentMonth.id,version:"0",requestId:randomUUID(),amount:"500",dueDate:"2026-10-31",sourceMode:"NEW_PLAN",confirmed:"on",reason:"10월 월세 확인"});await assert.rejects(confirmMonthlyPayment(tx,confirm),/동일한/);confirm.set("noDuplicate","on");await confirmMonthlyPayment(tx,confirm);await confirmMonthlyPayment(tx,confirm);let rent=await tx.monthlyPayment.findUniqueOrThrow({where:{id:rentMonth.id}});assert.ok(rent.cashPlanId);const plans=await tx.cashPlan.count({where:{companyId:COMPANY_ID}});
+  const existing=await tx.cashPlan.create({data:{companyId:COMPANY_ID,direction:"OUT",certainty:"CONFIRMED",title:"이미 있던 월세",category:"현장경비",plannedDate:new Date("2026-10-31"),plannedAmount:"500"}});confirm.set("requestId",randomUUID());confirm.set("version","1");confirm.set("sourceMode","EXISTING_PLAN");confirm.set("cashPlanId",existing.id);await confirmMonthlyPayment(tx,confirm);rent=await tx.monthlyPayment.findUniqueOrThrow({where:{id:rentMonth.id}});assert.equal(rent.cashPlanId,existing.id);assert.equal(await tx.cashPlan.count({where:{companyId:COMPANY_ID}}),plans+1);
+  const doc=await tx.tradeDocument.create({data:{companyId:COMPANY_ID,kind:"PURCHASE",reference:randomUUID(),title:"10월 전기 고지",partnerId:partner.id,projectId:project.id,issuedDate:new Date("2026-10-01"),dueDate:new Date("2026-10-31"),supplyAmount:"75",taxAmount:"0",grossAmount:"75",taxKind:"TAXABLE",evidence:"STATEMENT",proofConfirmed:true,paymentMethod:"BANK_TRANSFER",note:""}});await confirmMonthlyPayment(tx,form({monthlyId:electricity.id,version:"0",requestId:randomUUID(),amount:"75",dueDate:"2026-10-31",sourceMode:"INVOICE",documentId:doc.id,confirmed:"on",reason:"이미 등록한 전기 고지서 연결"}));
+  work=await transferPreparation(tx,"2026-10-31");assert.equal(work.ready.filter(r=>r.description.includes("전기")).length,1);assert.ok(work.ready.some(r=>r.id===`invoice:${doc.id}`));assert.equal(work.ready.filter(r=>r.id===`monthly:${rentMonth.id}`).length,1);
+  assert.equal(work.ready.find(r=>r.id===`monthly:${rentMonth.id}`)?.paymentLink,`/cash?process=${existing.id}`);
+  const pay=async(value:string)=>{const plan=await tx.cashPlan.findUniqueOrThrow({where:{id:existing.id}});await settleCashPlan(tx,form({planId:existing.id,version:String(plan.version),requestId:randomUUID(),amount:value,processedDate:"2026-10-01",note:"송금 준비 잔액 검증"}));};
+  const undo=async()=>{const plan=await tx.cashPlan.findUniqueOrThrow({where:{id:existing.id}});const settlement=await tx.cashSettlement.findFirstOrThrow({where:{planId:existing.id,voidedAt:null},orderBy:{createdAt:"desc"}});await voidCashSettlement(tx,form({settlementId:settlement.id,version:String(plan.version),reason:"합성 지급 취소 검증"}));};
+  await pay("200");assert.equal((await transferPreparation(tx,"2026-10-31")).ready.find(r=>r.id===`monthly:${rentMonth.id}`)?.amount,"300");
+  await undo();assert.equal((await transferPreparation(tx,"2026-10-31")).ready.find(r=>r.id===`monthly:${rentMonth.id}`)?.amount,"500");
+  await pay("500");assert.ok(!(await transferPreparation(tx,"2026-10-31")).ready.some(r=>r.id===`monthly:${rentMonth.id}`));
+  await undo();assert.equal((await transferPreparation(tx,"2026-10-31")).ready.find(r=>r.id===`monthly:${rentMonth.id}`)?.amount,"500");
+  await voidMonthlyPayment(tx,form({monthlyId:rentMonth.id,version:"2",requestId:randomUUID(),reason:"이번 달 준비 취소"}));assert.ok((await tx.cashPlan.findUniqueOrThrow({where:{id:existing.id}})).completedAt);assert.ok(!(await transferPreparation(tx,"2026-10-31")).ready.some(r=>r.id===`monthly:${rentMonth.id}`));throw rollback;
+ },{timeout:15000}),(e:unknown)=>e===rollback);}finally{await db.$disconnect();}
+});

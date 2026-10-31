@@ -1,0 +1,6 @@
+import {InputError} from "./validation";
+export const STOCK_KINDS={OPENING:"기초재고",IN:"매입·직납 입고",TRANSFER:"창고·현장 이동/반납",OUT:"현장 사용·출고"} as const;
+export function stockQuantity(value:string){if(!/^(?:0|[1-9]\d{0,15})(?:\.\d{1,4})?$/.test(value))throw new InputError("수량·단가는 소수 넷째 자리까지, 정수 16자리 이내로 입력하세요.");const [a,b=""]=value.split(".");return BigInt(a)*10000n+BigInt(b.padEnd(4,"0"));}
+export function stockDisplay(value:bigint){const sign=value<0n?"-":"";const n=value<0n?-value:value;return `${sign}${n/10000n}${n%10000n?`.${(n%10000n).toString().padStart(4,"0").replace(/0+$/,"")}`:""}`;}
+export type StockStep={id:string;sequence:number;movedDate:Date;fromId:string|null;toId:string|null;quantity:{toFixed(n:number):string}};
+export function stockBalances(rows:StockStep[]){const balances=new Map<string,bigint>();for(const r of [...rows].sort((a,b)=>a.movedDate.getTime()-b.movedDate.getTime()||a.sequence-b.sequence)){const quantity=stockQuantity(r.quantity.toFixed(4));if(r.fromId){const next=(balances.get(r.fromId)??0n)-quantity;if(next<0n)throw new InputError(`${r.movedDate.toISOString().slice(0,10)} 출고 수량이 해당 시점 재고를 초과합니다. 기초·입고·이동 순서를 확인하세요.`);balances.set(r.fromId,next);}if(r.toId)balances.set(r.toId,(balances.get(r.toId)??0n)+quantity);}return balances;}

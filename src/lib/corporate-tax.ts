@@ -1,0 +1,12 @@
+import {InputError} from "./validation";
+export type TaxAssumptions={profit:string;addbacks:string;deductions:string;losses:string;limits:string[];nationalRates:string[];localRates:string[];nationalCredits:string;localCredits:string;nationalPrepaid:string;localPrepaid:string};
+function signed(value:string){if(!/^-?(?:0|[1-9]\d{0,19})$/.test(value))throw new InputError("회계이익은 20자리 이하 원 단위 정수로 입력하세요.");return BigInt(value);}
+function nonnegative(value:string){const n=signed(value);if(n<0n)throw new InputError("세무조정·한도·공제·기납부액은 0 이상으로 입력하세요.");return n;}
+function percent(value:string){if(!/^(?:0|[1-9]\d?|100)(?:\.\d{1,2})?$/.test(value))throw new InputError("세율은 0~100% 사이 소수 둘째 자리까지 입력하세요.");const [a,b=""]=value.split(".");const n=BigInt(a)*100n+BigInt(b.padEnd(2,"0"));if(n>10000n)throw new InputError("세율은 100% 이하여야 합니다.");return n;}
+export function estimateCorporateTax(a:TaxAssumptions){
+ const adjusted=signed(a.profit)+nonnegative(a.addbacks)-nonnegative(a.deductions)-nonnegative(a.losses);const base=adjusted>0n?adjusted:0n;
+ if(a.limits.length!==3||a.nationalRates.length!==4||a.localRates.length!==4)throw new InputError("세율 구간 4개와 상한 3개를 확인하세요.");const limits=a.limits.map(nonnegative);if(limits[0]<=0n||limits[1]<=limits[0]||limits[2]<=limits[1])throw new InputError("과세표준 구간 상한은 0보다 크고 순서대로 증가해야 합니다.");
+ function calculate(rates:string[]){let lower=0n;let numerator=0n;const lines=[];for(let i=0;i<4;i++){const upper=limits[i]??base;const taxable=base>lower?(base<upper?base:upper)-lower:0n;const rate=percent(rates[i]);numerator+=taxable*rate;lines.push({lower:lower.toString(),upper:i===3?null:upper.toString(),taxable:taxable.toString(),rate:rates[i]});lower=upper;}return{calculated:numerator/10000n,lines};}
+ const national=calculate(a.nationalRates);const local=calculate(a.localRates);const nationalCredit=nonnegative(a.nationalCredits);const localCredit=nonnegative(a.localCredits);const nationalAfter=national.calculated>nationalCredit?national.calculated-nationalCredit:0n;const localAfter=local.calculated>localCredit?local.calculated-localCredit:0n;const nBalance=nationalAfter-nonnegative(a.nationalPrepaid);const lBalance=localAfter-nonnegative(a.localPrepaid);
+ return{taxableBase:base.toString(),nationalCalculated:national.calculated.toString(),localCalculated:local.calculated.toString(),nationalAfter:nationalAfter.toString(),localAfter:localAfter.toString(),nationalBalance:nBalance.toString(),localBalance:lBalance.toString(),totalBalance:(nBalance+lBalance).toString(),nationalLines:national.lines,localLines:local.lines};
+}

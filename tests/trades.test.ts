@@ -1,0 +1,60 @@
+import "dotenv/config";
+import test from "node:test";
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { getDb } from "../src/lib/db";
+import { COMPANY_ID } from "../src/lib/constants";
+import { saveTradeDocument, linkTradeBank, unlinkTradeBank, voidTradeDocument } from "../src/lib/trades";
+import { reclassifyBankTransaction } from "../src/lib/ledger";
+import { applyClassificationBatch } from "../src/lib/batch-classification";
+import { taxPeriod, summarizeVat, type TaxSummaryGroup } from "../src/lib/tax-summary";
+const form = (values: Record<string,string>) => { const f = new FormData(); Object.entries(values).forEach(([k,v]) => f.set(k,v)); return f; };
+test("부가세는 확인된 증빙·공제만 집계하고 미확인·불공제·영세·면세를 분리한다", () => {
+  const base: TaxSummaryGroup = { kind:"SALE", evidence:"TAX_INVOICE", proofConfirmed:true, inputVatReview:"PENDING", taxKind:"TAXABLE", supply:"1000", tax:"100" };
+  const s = summarizeVat([base,{...base,proofConfirmed:false,tax:"50"},{...base,kind:"PURCHASE",inputVatReview:"DEDUCTIBLE",tax:"30"},{...base,kind:"PURCHASE",inputVatReview:"PENDING",tax:"10"},{...base,kind:"PURCHASE",inputVatReview:"NONDEDUCTIBLE",tax:"20"},{...base,kind:"PURCHASE",inputVatReview:"DEDUCTIBLE",proofConfirmed:false,tax:"5"},{...base,taxKind:"ZERO",tax:"0"},{...base,taxKind:"EXEMPT",evidence:"STATEMENT",tax:"0"}]);
+  assert.deepEqual(s,{output:100n,deductible:30n,estimate:70n,pendingSale:50n,pendingPurchase:15n,nondeductible:20n,zeroSupply:1000n,exemptSupply:1000n});
+  assert.equal(taxPeriod("2026-12","QUARTER").to.toISOString().slice(0,10),"2027-01-01"); assert.equal(taxPeriod("2024-02","MONTH").to.toISOString().slice(0,10),"2024-03-01");
+  assert.throws(() => taxPeriod("2026-13","MONTH")); assert.throws(() => taxPeriod("2026-01","YEAR"));
+});
+test("매입·매출 분할 정산·한 은행거래 중복 배분 방지·해제·취소·이체 및 원본 보존을 검증한다", async () => {
+  const db=getDb(); const rollback=new Error("ROLLBACK");
+  try { await assert.rejects(db.$transaction(async(tx) => {
+    await tx.company.upsert({where:{id:COMPANY_ID},create:{id:COMPANY_ID,name:"검증 회사"},update:{}});
+    const partner=await tx.partner.create({data:{companyId:COMPANY_ID,code:randomUUID(),name:"매출 검증",type:"BOTH"}});
+    const project=await tx.project.create({data:{companyId:COMPANY_ID,code:randomUUID(),name:"청구 검증"}});
+    const account=await tx.bankAccount.create({data:{companyId:COMPANY_ID,bankName:"하나은행",label:randomUUID()}});
+    const bank=await tx.bankTransaction.create({data:{accountId:account.id,tradedDate:new Date("2026-10-01"),direction:"IN",amount:"1000",bankBalance:"99999999999999999999",description:"검증 수금"}});
+    const out=await tx.bankTransaction.create({data:{accountId:account.id,tradedDate:new Date("2026-10-01"),direction:"OUT",amount:"1000",description:"검증 지급"}});
+    const values={version:"0",requestId:randomUUID(),kind:"SALE",reference:randomUUID(),title:"준공 청구",partnerId:partner.id,projectId:project.id,issuedDate:"2026-10-01",dueDate:"2026-10-02",supplyAmount:"1000",taxAmount:"100",taxKind:"TAXABLE",evidence:"TAX_INVOICE",proofConfirmed:"on",inputVatReview:"PENDING",reason:"검증 등록"};
+    const create=form(values); const id=await saveTradeDocument(tx,create); assert.equal(await saveTradeDocument(tx,create),id);
+    const second=await saveTradeDocument(tx,form({...values,requestId:randomUUID(),reference:randomUUID()}));
+    const link=form({documentId:id,version:"0",transactionId:bank.id,requestId:randomUUID(),amount:"600",note:"중도금"});
+    await linkTradeBank(tx,link); await linkTradeBank(tx,link);
+    let saved=await tx.tradeDocument.findUniqueOrThrow({where:{id}}); assert.equal(saved.settledAmount.toFixed(0),"600"); assert.equal(saved.version,1);
+    const modify=form({...values,id,version:"1",requestId:randomUUID(),supplyAmount:"2000"}); await assert.rejects(saveTradeDocument(tx,modify),/먼저 해제/);
+    await assert.rejects(voidTradeDocument(tx,form({documentId:id,version:"1",reason:"취소",requestId:randomUUID()})),/먼저 해제/);
+    link.set("requestId",randomUUID()); await assert.rejects(linkTradeBank(tx,link),/변경/);
+    link.set("version","1");link.set("amount","501");await assert.rejects(linkTradeBank(tx,link),/잔액을 초과/);
+    link.set("documentId",second);link.set("version","0");link.set("amount","401");await assert.rejects(linkTradeBank(tx,link),/은행 거래금액을 초과/);
+    link.set("amount","400");await linkTradeBank(tx,link);
+    const transferCode=await tx.accountingCode.findUniqueOrThrow({where:{code:"1010"}});
+    await assert.rejects(reclassifyBankTransaction(tx,form({transactionId:bank.id,version:"0",businessType:"internal-transfer",accountingCodeId:transferCode.id,reason:"검증 이체"})),/은행 연결을 먼저 해제/);
+    await assert.rejects(applyClassificationBatch(tx,form({rows:JSON.stringify([{id:bank.id,version:0}]),requestId:randomUUID(),confirmed:"on",businessType:"internal-transfer",accountingCodeId:transferCode.id,reason:"검증 이체"})),/은행 연결을 먼저 해제/);
+    const firstLink=await tx.tradeBankLink.findFirstOrThrow({where:{documentId:id}});
+    const undo=form({linkId:firstLink.id,version:"1",reason:"연결 수정"});await unlinkTradeBank(tx,undo);await unlinkTradeBank(tx,undo);
+    saved=await tx.tradeDocument.findUniqueOrThrow({where:{id}});assert.equal(saved.settledAmount.toFixed(0),"0");
+    // Replaying an undone request never recreates the receipt.
+    const original=form({documentId:id,version:"0",transactionId:bank.id,requestId:firstLink.requestId,amount:"600",note:"중도금"});await linkTradeBank(tx,original);assert.equal((await tx.tradeDocument.findUniqueOrThrow({where:{id}})).settledAmount.toFixed(0),"0");
+    const cancel=form({documentId:id,version:"2",reason:"중복 청구 취소",requestId:randomUUID()});await voidTradeDocument(tx,cancel);await voidTradeDocument(tx,cancel);
+    const purchase=await saveTradeDocument(tx,form({...values,kind:"PURCHASE",requestId:randomUUID(),reference:randomUUID(),inputVatReview:"DEDUCTIBLE"}));
+    const pay=form({documentId:purchase,version:"0",transactionId:bank.id,requestId:randomUUID(),amount:"100",note:"매입 지급"});await assert.rejects(linkTradeBank(tx,pay),/매출은 입금/);
+    pay.set("transactionId",out.id);await linkTradeBank(tx,pay);
+    assert.equal((await tx.tradeDocument.findUniqueOrThrow({where:{id:purchase}})).settledAmount.toFixed(0),"100");
+    const originalBank=await tx.bankTransaction.findUniqueOrThrow({where:{id:bank.id}});assert.equal(originalBank.amount.toFixed(0),"1000");assert.equal(originalBank.bankBalance?.toFixed(0),"99999999999999999999");assert.equal(await tx.bankTransaction.count({where:{accountId:account.id}}),2);
+    assert.equal(await tx.paymentAllocation.count({where:{transactionId:out.id}}),0);
+    const invalid=form({...values,requestId:randomUUID(),reference:randomUUID(),taxKind:"EXEMPT"});await assert.rejects(saveTradeDocument(tx,invalid),/0원/);
+    invalid.set("taxKind","TAXABLE");invalid.set("kind","PURCHASE");invalid.set("inputVatReview","DEDUCTIBLE");invalid.delete("proofConfirmed");await assert.rejects(saveTradeDocument(tx,invalid),/원본을 확인/);
+    invalid.set("proofConfirmed","on");invalid.set("partnerId","foreign-partner");await assert.rejects(saveTradeDocument(tx,invalid),/회사 거래처/);
+    throw rollback;
+  },{timeout:15000}),(e:unknown) => e===rollback); } finally {await db.$disconnect();}
+});
