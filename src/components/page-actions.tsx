@@ -35,7 +35,7 @@ function captureReport(company: string): Report {
   // visible route, excluding the preview itself, so other projects cannot leak.
   for (const table of Array.from(main?.querySelectorAll("table") ?? []).filter((element) => visible(element) && !element.closest("dialog") && !element.closest("[data-erp-report-exclude]"))) {
     const header = table.querySelector("thead tr");
-    const allHeaders = Array.from(header?.querySelectorAll("th") ?? [], (cell) => cell.textContent?.trim() || "항목");
+    const allHeaders = Array.from(header?.querySelectorAll("th") ?? [], (cell) => cell.getAttribute("data-erp-report-label") || cell.textContent?.trim() || "항목");
     const columns = allHeaders.map((name, index) => ({ name, index })).filter(({ name }) => !["처리", "수정", "바로가기", "상세"].includes(name));
     const headers = columns.map(({ name }) => name);
     const rows = Array.from(table.querySelectorAll("tbody tr"), (row) => {
