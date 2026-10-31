@@ -1,3 +1,4 @@
+import {MONTHLY_PAY_FIELDS,calculateMonthlyPay,readMonthlyPayDetails} from "./monthly-payroll-details";
 import {invalidateSourceCosts} from "./source-cost-invalidation";
 import {createHash} from "node:crypto";
 import type {Prisma,PrismaClient} from "@/generated/prisma/client";
@@ -25,7 +26,15 @@ export async function savePayroll(tx:Prisma.TransactionClient,op:"confirm"|"void
   const netAmount=amount(text(d,"netAmount","최종 실지급액",true,20),"최종 실지급액")!;if(BigInt(netAmount)<=0n)throw new InputError("최종 실지급액은 0보다 커야 합니다.");const adjustmentReason=text(d,"adjustmentReason","지급액 조정·산정 근거",false,300)||null;
   if((base.monthly||BigInt(netAmount)!==base.daily?.amount)&&!adjustmentReason)throw new InputError("공제·수당 등 최종 실지급액 산정·조정 근거를 입력하세요.");
   const dueDate=date(text(d,"dueDate","급여 지급일",true),"급여 지급일")!;if(d.get("confirmed")!=="on"||d.get("noDuplicate")!=="on")throw new InputError("실지급액과 기존 급여 예정의 중복 여부를 확인하세요.");
-  values={netAmount,dueDate,basis:base.basis,snapshot:base.basisData,adjustmentReason};
+  if(readMonthlyPayDetails(old?.snapshot)&&d.get("useMonthlyDetails")!=="on")throw new InputError("기존 수당·공제 세부 내역을 켜고 정정하세요. 내역을 생략해 덮어쓸 수 없습니다.");
+  let snapshot:Prisma.InputJsonValue=base.basisData;
+  if(d.get("useMonthlyDetails")==="on"){
+   if(!base.monthly)throw new InputError("상용직 수당·공제 세부 계산은 월급제 지급 확인에서 사용하세요.");
+   const calculation=calculateMonthlyPay(Object.fromEntries(MONTHLY_PAY_FIELDS.map(([key])=>[key,text(d,`monthly_${key}`,key,true,21)])));
+   if(calculation.net!==BigInt(netAmount))throw new InputError("세부 내역의 계산 실수령액과 최종 실지급액이 다릅니다.");
+   snapshot={...base.basisData,monthlyDetails:calculation.details};
+  }
+  values={netAmount,dueDate,basis:base.basis,snapshot,adjustmentReason};
  }
  const locked=await tx.employee.updateMany({where:{id:employee.id,companyId:COMPANY_ID,version:employee.version},data:{version:{increment:1}}});if(locked.count!==1)throw new InputError("직원·계약·출역이 변경되었습니다. 다시 조회하세요.");
  if(old&&!old.cashPlan.completedAt){const closed=await tx.cashPlan.updateMany({where:{id:old.cashPlan.id,version:old.cashPlan.version,completedAt:null},data:{completedAt:new Date(),completionNote:reason,version:{increment:1}}});if(closed.count!==1)throw new InputError("기존 급여 예정이 변경되었습니다. 다시 조회하세요.");}
@@ -36,5 +45,5 @@ export async function savePayroll(tx:Prisma.TransactionClient,op:"confirm"|"void
   saved=old?await tx.payrollPayment.update({where:{id:old.id},data:{...values!,cashPlanId:plan.id,voidedAt:null,version:{increment:1}}}):await tx.payrollPayment.create({data:{...values!,employeeId,period,cashPlanId:plan.id}});
  }
  await invalidateSourceCosts(tx,"PAYROLL",[saved.id]);
- await tx.laborChange.create({data:{employeeId,requestId,fingerprint,operation:op==="confirm"?"payroll":"payrollVoid",previous:old?{id:old.id,netAmount:old.netAmount.toFixed(0),basis:old.basis,cashPlanId:old.cashPlanId}: {},next:{id:saved.id,netAmount:saved.netAmount.toFixed(0),basis:saved.basis,cashPlanId:saved.cashPlanId,voided:op==="void"},reason}});return saved.id;
+ await tx.laborChange.create({data:{employeeId,requestId,fingerprint,operation:op==="confirm"?"payroll":"payrollVoid",previous:old?{id:old.id,netAmount:old.netAmount.toFixed(0),basis:old.basis,cashPlanId:old.cashPlanId,snapshot:old.snapshot}: {},next:{id:saved.id,netAmount:saved.netAmount.toFixed(0),basis:saved.basis,cashPlanId:saved.cashPlanId,voided:op==="void",snapshot:saved.snapshot},reason}});return saved.id;
 }
