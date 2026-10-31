@@ -1,0 +1,21 @@
+import "dotenv/config";
+import test from "node:test";
+import assert from "node:assert/strict";
+import {randomUUID,createHash} from "node:crypto";
+import ExcelJS from "exceljs";
+import {getDb} from "../src/lib/db";
+import {COMPANY_ID} from "../src/lib/constants";
+import {validateDocument} from "../src/lib/document-validation";
+import {DOCUMENT_META,uploadDocument,setDocumentArchived,documentTarget} from "../src/lib/documents";
+const pdf=Buffer.from("%PDF-1.4\nSynthetic evidence only\n%%EOF");
+const request=(values:Record<string,string>)=>{const f=new FormData();Object.entries({requestId:randomUUID(),reason:"합성 첨부 검증",...values}).forEach(([k,v])=>f.set(k,v));return f;};
+test("증빙은 실제 문서 형식·이름·크기와 압축 문서 종류를 확인한다",async()=>{
+ assert.equal(validateDocument("증빙.pdf",pdf).mediaType,"application/pdf");assert.throws(()=>validateDocument("../증빙.pdf",pdf),/이름/);assert.throws(()=>validateDocument("증빙.pdf",Buffer.from("html")),/형식/);assert.throws(()=>validateDocument("fake.exe",pdf),/형식/);assert.throws(()=>validateDocument("large.pdf",Buffer.alloc(10*1024*1024+1)),/10MB/);assert.throws(()=>validateDocument("empty.pdf",Buffer.alloc(0)),/0보다/);const book=new ExcelJS.Workbook();book.addWorksheet("합성 자료").addRow(["거래","1000"]);const bytes=new Uint8Array(await book.xlsx.writeBuffer());assert.equal(validateDocument("자료.xlsx",bytes).mediaType,"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");assert.throws(()=>validateDocument("fake.docx",bytes),/확장자/);
+});
+test("첨부는 원본 바이트 보존·회사 범위·재요청·중복·취소·복원 이력을 보호한다",async()=>{
+ const db=getDb();const rollback=new Error("rollback");try{await assert.rejects(db.$transaction(async tx=>{
+ await tx.company.upsert({where:{id:COMPANY_ID},create:{id:COMPANY_ID,name:"첨부 검증 회사"},update:{}});const project=await tx.project.create({data:{companyId:COMPANY_ID,code:randomUUID(),name:"첨부 원본 현장"}});const fields={sourceType:"PROJECT",sourceId:project.id,category:"CONTRACT",period:"2026-10",note:"합성 공사계약 원본"};const data=request(fields);const f=await uploadDocument(tx,data,"합성 계약서.pdf",pdf);assert.equal((await uploadDocument(tx,data,"합성 계약서.pdf",pdf)).id,f.id);assert.equal("content"in f,false);const stored=await tx.documentAttachment.findUniqueOrThrow({where:{id:f.id}});assert.ok(Buffer.from(stored.content).equals(pdf));assert.equal(stored.checksum,createHash("sha256").update(pdf).digest("hex"));await assert.rejects(uploadDocument(tx,request(fields),"다른이름.pdf",pdf),/이미 첨부/);
+ const other=await tx.company.create({data:{name:"타사 합성 회사"}});const foreign=await tx.project.create({data:{companyId:other.id,code:randomUUID(),name:"타사 공사"}});await assert.rejects(documentTarget(tx,"PROJECT",foreign.id),/회사에 등록/);await assert.rejects(uploadDocument(tx,request({...fields,sourceId:foreign.id}),"타사 계약서.pdf",pdf),/회사에 등록/);const foreignFile=await tx.documentAttachment.create({data:{companyId:other.id,fileName:"타사.pdf",content:pdf,checksum:stored.checksum,size:pdf.length,mediaType:"application/pdf",sourceType:"GENERAL",sourceId:"",category:"OTHER",note:"타사 합성 자료"}});await assert.rejects(setDocumentArchived(tx,request({attachmentId:foreignFile.id,version:"0"}),true),/첨부 상태/);
+ const archive=request({attachmentId:f.id,version:"0"});await setDocumentArchived(tx,archive,true);await setDocumentArchived(tx,archive,true);let meta=await tx.documentAttachment.findUniqueOrThrow({where:{id:f.id},select:DOCUMENT_META});assert.ok(meta.archivedAt);assert.equal(meta.version,1);await assert.rejects(setDocumentArchived(tx,request({attachmentId:f.id,version:"0"}),false),/변경/);const clone=await uploadDocument(tx,request(fields),"합성 계약서.pdf",pdf);await assert.rejects(setDocumentArchived(tx,request({attachmentId:f.id,version:"1"}),false),/사용 중/);await setDocumentArchived(tx,request({attachmentId:clone.id,version:"0"}),true);await setDocumentArchived(tx,request({attachmentId:f.id,version:"1"}),false);meta=await tx.documentAttachment.findUniqueOrThrow({where:{id:f.id},select:DOCUMENT_META});assert.equal(meta.archivedAt,null);assert.equal(await tx.attachmentChange.count({where:{attachmentId:f.id}}),3);assert.ok(Buffer.from((await tx.documentAttachment.findUniqueOrThrow({where:{id:f.id}})).content).equals(pdf));throw rollback;
+ },{timeout:20000}),(e:unknown)=>e===rollback);}finally{await db.$disconnect();}
+});

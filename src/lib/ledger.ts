@@ -88,8 +88,9 @@ export async function resolveClassification(tx: Prisma.TransactionClient, data: 
 }
 export async function reclassifyBankTransaction(tx: Prisma.TransactionClient, data: FormData) {
   const id = text(data, "transactionId", "거래", true, 50);
-  const previous = await tx.bankTransaction.findFirst({ where: { id, account: { companyId: COMPANY_ID } }, include: { _count: { select: { paymentAllocations: true, tradeLinks: { where: { voidedAt: null } }, cashSettlements: { where: { voidedAt: null } } } } } });
+  const previous = await tx.bankTransaction.findFirst({ where: { id, account: { companyId: COMPANY_ID } }, include: { transferMembership:true, _count: { select: { paymentAllocations: true, tradeLinks: { where: { voidedAt: null } }, cashSettlements: { where: { voidedAt: null } } } } } });
   if (!previous) throw new InputError("분류할 거래를 다시 선택해 주세요.");
+  if(previous.transferMembership)throw new InputError("통장 간 이체 연결을 먼저 해제한 뒤 분류를 변경하세요.");
   const version = revision(data);
   const reason = text(data, "reason", "수정 사유", true, 300);
   const next = await resolveClassification(tx, data, previous.direction);

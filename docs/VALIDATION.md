@@ -168,3 +168,13 @@ DB 테스트는 롤백한다. 브라우저 테스트는 고유 코드로 생성�
 - 회계 전달 엑셀 10시트(안내+자료 9종), 과거 보관본의 실제 값·숫자 금액 보존, 화면 확대·인쇄/엑셀 흐름 검증.
 - 원가 연결 마이그레이션은 추가 전용 SQL(표·열·인덱스·외래키)만 검토 후 migrate deploy로 적용. DB 초기화·기존 원가 행 삭제 없음.
 - 합성 화면: `/tmp/dongyang-erp-inventory.png`, `/tmp/dongyang-erp-source-costs.png`, `/tmp/dongyang-erp-corporate-tax.png`, `/tmp/dongyang-erp-accounting-delivery.png`. 화면 미리보기 생성: `node scripts/build-screen-preview.mjs`.
+
+### 2026-11-01 원본 보관·내부이체·송금 승인 기록 마무리
+- 단위·DB 검증 총 53건, 최종 전체 브라우저 12개 업무 흐름 통과(1.9분). 프로덕션 빌드·린트·타입·새 환경 마이그레이션 통과.
+- PDF·사진·Office·HWP 계열 형식/크기·원본 바이트·회사 범위·재요청·동일 파일 중복·취소/복원·무단 다운로드 차단 확인. 같은 출처 업로드 검증은 실제 Host를 기준으로 적용.
+- 표준 ZIP을 Python zipfile로 교차 검증하여 한글 파일명·원본 해시·CRC·엑셀 동봉과 분할을 확인. 전달본 엑셀은 안내+자료 10종으로 총 11시트.
+- 자사 통장 출금/입금 쌍·보통예금 분류·활성 중복·동시 연결·다른 실적 연결 차단·분류 보호·이전 분류 복원과 은행 원본 금액/잔액 보존 확인.
+- 구두승인 검토본의 대표자·날짜·원본 계좌 변경·지급 상태 변경·재요청·취소를 검증. 브라우저에서 원본 변경 후에도 보관 계좌는 유지되고 경고가 표시됨을 확인.
+- 서버 저장 응답이 화면에 반영된 후 상태를 확인하도록 검증 보완. 로그아웃 완료 후 API 접근 차단, 이체 해제와 승인 기록의 실제 저장 완료를 확인.
+- PostgreSQL 17 로컬 Docker 도구로 별도 합성 DB 백업·빈 DB 복원, NUL/0xFF/상위 바이트·20자리 금액 보존, 업무 DB/기존 복구 DB/기존 백업 덮어쓰기 차단 통과.
+- 합성 화면 추가: `/tmp/dongyang-erp-documents.png`, `/tmp/dongyang-erp-bank-transfers.png`, `/tmp/dongyang-erp-transfer-approvals.png`. 원본 회사 자료·NAS 폴더는 변경하지 않음.

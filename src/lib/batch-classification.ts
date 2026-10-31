@@ -27,6 +27,8 @@ export async function applyClassificationBatch(tx: Prisma.TransactionClient, dat
     if (previousBatch.companyId !== COMPANY_ID || previousBatch.fingerprint !== fingerprint) throw new InputError("이미 다른 내용으로 사용한 요청입니다. 화면을 다시 열어 주세요.");
     return previousBatch;
   }
+
+  if(await tx.bankTransferMember.count({where:{transactionId:{in:selected.map(r=>r.id)},transaction:{account:{companyId:COMPANY_ID}}}}))throw new InputError("통장 간 이체 연결을 먼저 해제하세요.");
   const rows = await tx.bankTransaction.findMany({ where: { id: { in: selected.map((r) => r.id) }, account: { companyId: COMPANY_ID } }, include: { _count: { select: { paymentAllocations: true, tradeLinks: { where: { voidedAt: null } }, cashSettlements: { where: { voidedAt: null } } } } } });
   if (rows.length !== selected.length) throw new InputError("회사 거래인지 확인한 뒤 다시 선택해 주세요.");
   const versions = new Map(selected.map((r) => [r.id, r.version]));

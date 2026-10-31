@@ -12,6 +12,15 @@ function connection(value) {
   if (url.searchParams.has("sslmode")) env.PGSSLMODE = url.searchParams.get("sslmode");
   return { url, env };
 }
+function postgresTool(name, args, env, stdio) {
+  const container = process.env.ERP_PG_TOOLS_CONTAINER;
+  if (!container) return spawnSync(name, args, { env, stdio });
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/.test(container)) throw new Error();
+  const dockerEnv = { ...env };
+  for (const key of ["DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"]) delete dockerEnv[key];
+  const forwarded = ["PGHOST", "PGPORT", "PGDATABASE", "PGUSER", "PGPASSWORD", "PGSSLMODE"].filter(key => env[key] !== undefined).flatMap(key => ["-e", key]);
+  return spawnSync("docker", ["--host=unix:///var/run/docker.sock", "exec", "-i", ...forwarded, container, name, ...args], { env: dockerEnv, stdio });
+}
 let file; let fd; let created = false;
 try {
   const source = connection(process.env.DATABASE_URL);
@@ -19,7 +28,7 @@ try {
     if (!fileArg) mkdirSync("backups", { recursive: true, mode: 0o700 });
     file = resolve(fileArg ?? `backups/dongyang-${new Date().toISOString().replaceAll(":", "-")}.dump`);
     fd = openSync(file, "wx", 0o600); created = true;
-    const result = spawnSync("pg_dump", ["--format=custom", "--no-owner", "--no-privileges"], { env: source.env, stdio: ["ignore", fd, "pipe"] });
+    const result = postgresTool("pg_dump", ["--format=custom", "--no-owner", "--no-privileges"], source.env, ["ignore", fd, "pipe"]);
     closeSync(fd); fd = undefined;
     if (result.status !== 0 || !statSync(file).size) throw new Error();
     chmodSync(file, 0o600); console.log(`백업 완료: ${file}`);
@@ -33,7 +42,9 @@ try {
       const count = await client.query("SELECT count(*)::int AS n FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_toast%' AND c.relkind IN ('r','p','v','m','S','f')");
       if (count.rows[0].n !== 0) { console.error("복구 대상에 기존 자료가 있습니다. 새 빈 DB만 사용할 수 있습니다."); process.exitCode = 1; }
       else {
-        const result = spawnSync("pg_restore", ["--dbname", target.env.PGDATABASE, "--exit-on-error", "--single-transaction", "--no-owner", "--no-privileges", resolve(fileArg)], { env: target.env, stdio: ["ignore", "ignore", "pipe"] });
+        fd = openSync(resolve(fileArg), "r");
+        const result = postgresTool("pg_restore", ["--dbname", target.env.PGDATABASE, "--exit-on-error", "--single-transaction", "--no-owner", "--no-privileges"], target.env, [fd, "ignore", "pipe"]);
+        closeSync(fd); fd = undefined;
         if (result.status !== 0) throw new Error();
         console.log("별도 DB 복원 완료. 자료와 로그인 확인 후 운영 연결을 전환하세요.");
       }

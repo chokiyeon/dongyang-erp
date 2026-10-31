@@ -1,0 +1,8 @@
+"use client";
+import {useState} from "react";
+import {RecordForm,type FormState} from "./record-form";
+import {Field,Select} from "./fields";
+type BankRow={id:string;version:number;date:string;account:string;description:string;amount:string};
+export function BankTransferForm({action,outgoing,incoming,requestId}:{action:(s:FormState,d:FormData)=>Promise<FormState>;outgoing:BankRow;incoming:BankRow[];requestId:string}){
+ const [selected,setSelected]=useState("");const target=incoming.find(r=>r.id===selected);return<RecordForm action={action} label="출금·입금 이체 연결 저장"><input type="hidden" name="requestId" value={requestId}/><input type="hidden" name="outgoingId" value={outgoing.id}/><input type="hidden" name="outgoingVersion" value={outgoing.version}/><input type="hidden" name="incomingVersion" value={target?.version??0}/><p>{outgoing.date} · {outgoing.account} · {outgoing.description} · 출금 {BigInt(outgoing.amount).toLocaleString()}원</p><Select label="상대 계좌 입금 거래" name="incomingId" required value={selected} onChange={e=>setSelected(e.target.value)}><option value="">같은 금액의 입금 선택</option>{incoming.map(r=><option key={r.id} value={r.id}>{r.date} · {r.account} · {r.description} · {BigInt(r.amount).toLocaleString()}원</option>)}</Select><label><input type="checkbox" name="confirmed"/>두 거래가 같은 회사 통장 간 이체임을 원본과 확인했습니다.</label>{target&&target.date!==outgoing.date&&<label><input type="checkbox" name="dateConfirmed"/>출금일과 입금일이 다른 이유를 은행 원본과 확인했습니다.</label>}<Field label="이체 연결 사유" name="reason" required maxLength={300}/><p className="text-xs">원래 금액·날짜·은행 잔액을 바꾸지 않고 보통예금 간 이동으로 연결합니다. 현장 지급·매입매출·예정 실적에 연결된 거래는 먼저 해당 연결을 확인해야 합니다.</p></RecordForm>;
+}

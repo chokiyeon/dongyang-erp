@@ -7,9 +7,9 @@ import {saveLabor} from "@/lib/labor";
 import {InputError} from "@/lib/validation";
 import type {FormState} from "@/components/record-form";
 async function perform(op:Parameters<typeof saveLabor>[1],d:FormData):Promise<FormState>{
- await requireAdmin();let id="";
- try{id=await getDb().$transaction(tx=>saveLabor(tx,op,d),{timeout:15000});}catch(e){return{error:e instanceof InputError?e.message:e&&typeof e==="object"&&"code"in e&&e.code==="P2002"?"같은 직원 코드 또는 요청이 있습니다. 기존 내역을 확인하세요.":"인력 자료를 저장하지 못했습니다. 다시 확인하세요."};}
- revalidatePath("/","layout");redirect(op==="work"?`/work-records?edit=${id}&saved=1`:op==="workVoid"?`/work-records?saved=1`:`/employees?edit=${id}&saved=1`);
+ await requireAdmin();let id="";let period="";
+ try{const result=await getDb().$transaction(async tx=>{const id=await saveLabor(tx,op,d);const work=op==="work"||op==="workVoid"?await tx.workRecord.findUniqueOrThrow({where:{id},select:{workedDate:true}}):null;return{id,period:work?.workedDate.toISOString().slice(0,7)??""};},{timeout:15000});id=result.id;period=result.period;}catch(e){return{error:e instanceof InputError?e.message:e&&typeof e==="object"&&"code"in e&&e.code==="P2002"?"같은 직원 코드 또는 요청이 있습니다. 기존 내역을 확인하세요.":"인력 자료를 저장하지 못했습니다. 다시 확인하세요."};}
+ revalidatePath("/","layout");redirect(op==="work"?`/work-records?period=${period}&edit=${id}&saved=1`:op==="workVoid"?`/work-records?period=${period}&saved=1`:`/employees?edit=${id}&saved=1`);
 }
 export async function saveEmployeeAction(_s:FormState,d:FormData){return perform("employee",d);}
 export async function saveRateAction(_s:FormState,d:FormData){return perform("rate",d);}

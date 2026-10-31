@@ -19,7 +19,7 @@ try {
   for (const name of [sourceName,targetName]) { await admin.query(`CREATE DATABASE "${name}"`); created.push(name); }
   stage = "합성 자료 생성";
   const source = new pg.Client({ connectionString: sourceUrl.toString() });
-  try { await source.connect(); await source.query("CREATE TABLE backup_fixture (id integer PRIMARY KEY, amount numeric(20,0), label text)"); await source.query("INSERT INTO backup_fixture VALUES (1, 99999999999999999999, '합성 검증 자료')"); } finally { await source.end(); }
+  try { await source.connect(); await source.query("CREATE TABLE backup_fixture (id integer PRIMARY KEY, amount numeric(20,0), label text, content bytea)"); await source.query("INSERT INTO backup_fixture VALUES (1, 99999999999999999999, '합성 검증 자료', $1)", [Buffer.from([0,255,37,80,68,70,10,13,128])]); } finally { await source.end(); }
   const env = { ...process.env, DATABASE_URL: sourceUrl.toString(), ERP_RESTORE_DATABASE_URL: targetUrl.toString() };
   const run = (mode) => spawnSync(process.execPath, ["scripts/database-transfer.mjs",mode,file], { env, encoding:"utf8" });
   stage = "백업 실행";
@@ -33,7 +33,7 @@ try {
   const current = spawnSync(process.execPath,["scripts/database-transfer.mjs","restore",file],{env:{...env,ERP_RESTORE_DATABASE_URL:sourceUrl.toString()},encoding:"utf8"});assert.notEqual(current.status,0,"원본 DB에 복원하면 안 됩니다.");
   stage = "복구 자료 확인";
   const target = new pg.Client({connectionString:targetUrl.toString()});
-  try { await target.connect(); const result=await target.query("SELECT amount::text,label FROM backup_fixture WHERE id=1");assert.deepEqual(result.rows,[{amount:"99999999999999999999",label:"합성 검증 자료"}]); } finally { await target.end(); }
-  console.log("별도 검증 DB 백업·복구·20자리 금액 보존·원본/기존 DB 및 백업 덮어쓰기 차단 통과");
+  try { await target.connect(); const result=await target.query("SELECT amount::text,label,content FROM backup_fixture WHERE id=1");assert.deepEqual(result.rows,[{amount:"99999999999999999999",label:"합성 검증 자료",content:Buffer.from([0,255,37,80,68,70,10,13,128])}]); } finally { await target.end(); }
+  console.log("별도 검증 DB 백업·복구·원본 첨부 바이트·20자리 금액 보존·원본/기존 DB 및 백업 덮어쓰기 차단 통과");
 } catch { console.error(`실패 단계: ${stage}`); console.error("백업·복구 검증 실패. PostgreSQL 17 클라이언트와 검증 DB 생성 권한을 확인하세요. 접속 정보는 표시하지 않았습니다."); process.exitCode=1; }
 finally { for(const name of created.reverse()) await admin.query(`DROP DATABASE "${name}"`);await admin.end();rmSync(directory,{recursive:true,force:true}); }

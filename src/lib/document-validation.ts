@@ -1,0 +1,17 @@
+import {InputError} from "./validation";
+import {DOCUMENT_MAX_BYTES} from "./document-types";
+function zipEntries(bytes:Buffer){
+ let end=-1;for(let i=bytes.length-22;i>=Math.max(0,bytes.length-65557);i--){if(bytes.readUInt32LE(i)===0x06054b50&&i+22+bytes.readUInt16LE(i+20)===bytes.length){end=i;break;}}
+ if(end<0)throw new InputError("문서 압축 구조를 확인하지 못했습니다.");const count=bytes.readUInt16LE(end+10);const start=bytes.readUInt32LE(end+16);const size=bytes.readUInt32LE(end+12);if(count<1||count>10000||start+size>end||bytes.readUInt16LE(end+4)!==0||bytes.readUInt16LE(end+6)!==0)throw new InputError("지원하지 않는 압축 문서 구조입니다.");const names:string[]=[];let offset=start;let unpacked=0;
+ for(let i=0;i<count;i++){if(offset+46>start+size||bytes.readUInt32LE(offset)!==0x02014b50)throw new InputError("문서 구조가 올바르지 않습니다.");if(bytes.readUInt16LE(offset+8)&1)throw new InputError("암호화한 문서는 암호를 해제한 사본으로 첨부하세요.");unpacked+=bytes.readUInt32LE(offset+24);if(unpacked>100*1024*1024)throw new InputError("압축 해제 크기가 너무 큰 문서입니다.");const length=bytes.readUInt16LE(offset+28);const extra=bytes.readUInt16LE(offset+30);const comment=bytes.readUInt16LE(offset+32);if(offset+46+length+extra+comment>start+size)throw new InputError("문서 구조가 올바르지 않습니다.");const name=bytes.subarray(offset+46,offset+46+length).toString("utf8");if(name.includes("..")||name.startsWith("/")||name.includes("\\"))throw new InputError("지원하지 않는 문서 경로입니다.");names.push(name);offset+=46+length+extra+comment;}
+ if(offset!==start+size)throw new InputError("문서 구조가 올바르지 않습니다.");return names;
+}
+export function validateDocument(fileName:string,content:Uint8Array){
+ const name=fileName.normalize("NFC").trim();if(!name||name.length>180||/[\\/\x00-\x1f\x7f]/.test(name))throw new InputError("파일 이름을 확인하세요. 경로·제어문자는 사용할 수 없습니다.");if(content.byteLength===0||content.byteLength>DOCUMENT_MAX_BYTES)throw new InputError("파일은 0보다 크고 10MB 이하여야 합니다.");const b=Buffer.from(content);const extension=name.split(".").pop()?.toLowerCase();let mediaType="";
+ if(extension==="pdf"&&b.subarray(0,5).toString()==="%PDF-")mediaType="application/pdf";
+ else if(extension==="png"&&b.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))mediaType="image/png";
+ else if((extension==="jpg"||extension==="jpeg")&&b.length>3&&b[0]===255&&b[1]===216&&b[2]===255)mediaType="image/jpeg";
+ else if(["hwp","doc","ppt","xls"].includes(extension??"")&&b.length>=512&&b.subarray(0,8).equals(Buffer.from([208,207,17,224,161,177,26,225])))mediaType=({hwp:"application/x-hwp",doc:"application/msword",ppt:"application/vnd.ms-powerpoint",xls:"application/vnd.ms-excel"} as Record<string,string>)[extension!];
+ else if(["xlsx","docx","pptx","hwpx"].includes(extension??"")&&b.length>=22&&b.readUInt32LE(0)===0x04034b50){const names=zipEntries(b);const map:Record<string,[string,string]>={xlsx:["xl/workbook.xml","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],docx:["word/document.xml","application/vnd.openxmlformats-officedocument.wordprocessingml.document"],pptx:["ppt/presentation.xml","application/vnd.openxmlformats-officedocument.presentationml.presentation"],hwpx:["Contents/section0.xml","application/hwp+zip"]};const [required,type]=map[extension!];if(!names.includes(required)||!names.includes(extension==="hwpx"?"mimetype":"[Content_Types].xml"))throw new InputError("확장자와 실제 문서 종류가 다릅니다.");mediaType=type;}
+ if(!mediaType)throw new InputError("PDF·사진·엑셀·워드·PPT·HWP/HWPX 형식과 실제 파일 내용을 확인하세요.");return{fileName:name,mediaType,size:b.length};
+}

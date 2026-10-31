@@ -8,6 +8,10 @@ datasource db {
 }
 
 model Company {
+  bankTransfers BankTransferPair[]
+  transferApprovals TransferApproval[]
+  attachmentVersion Int @default(0)
+  attachments DocumentAttachment[]
   sourceCostReviews SourceCostReview[]
   taxEstimates CorporateTaxEstimate[]
   accountingPackages AccountingPackage[]
@@ -211,6 +215,9 @@ model CashBaseline {
 }
 
 model BankTransaction {
+  transferMembership BankTransferMember?
+  outgoingTransferHistory BankTransferPair[] @relation("TransferOut")
+  incomingTransferHistory BankTransferPair[] @relation("TransferIn")
   cashSettlements CashSettlement[]
   settlementVersion Int @default(0)
   tradeLinks TradeBankLink[]
@@ -985,6 +992,110 @@ model SourceCostChange {
  review SourceCostReview @relation(fields:[reviewId],references:[id],onDelete:Restrict)
  requestId String @unique
  fingerprint String
+ previous Json
+ next Json
+ reason String
+ createdAt DateTime @default(now())
+}
+
+model DocumentAttachment {
+ id String @id @default(cuid())
+ companyId String
+ company Company @relation(fields:[companyId],references:[id],onDelete:Restrict)
+ fileName String
+ mediaType String
+ size Int
+ checksum String
+ content Bytes
+ sourceType String
+ sourceId String @default("")
+ category String
+ period String?
+ note String
+ version Int @default(0)
+ archivedAt DateTime?
+ archiveReason String?
+ createdAt DateTime @default(now())
+ changes AttachmentChange[]
+ @@index([companyId,sourceType,sourceId,archivedAt])
+ @@index([companyId,period])
+}
+model AttachmentChange {
+ id String @id @default(cuid())
+ attachmentId String
+ attachment DocumentAttachment @relation(fields:[attachmentId],references:[id],onDelete:Restrict)
+ requestId String @unique
+ fingerprint String
+ operation String
+ previous Json
+ next Json
+ reason String
+ createdAt DateTime @default(now())
+}
+
+model BankTransferPair {
+ id String @id @default(cuid())
+ companyId String
+ company Company @relation(fields:[companyId],references:[id],onDelete:Restrict)
+ outgoingId String
+ outgoing BankTransaction @relation("TransferOut",fields:[outgoingId],references:[id],onDelete:Restrict)
+ incomingId String
+ incoming BankTransaction @relation("TransferIn",fields:[incomingId],references:[id],onDelete:Restrict)
+ previous Json
+ outgoingVersion Int
+ incomingVersion Int
+ active Boolean @default(true)
+ version Int @default(0)
+ endedAt DateTime?
+ createdAt DateTime @default(now())
+ members BankTransferMember[]
+ changes BankTransferChange[]
+ @@index([companyId,createdAt])
+}
+model BankTransferMember {
+ transactionId String @id
+ transaction BankTransaction @relation(fields:[transactionId],references:[id],onDelete:Restrict)
+ pairId String
+ pair BankTransferPair @relation(fields:[pairId],references:[id],onDelete:Restrict)
+ side String
+ @@unique([pairId,side])
+}
+model BankTransferChange {
+ id String @id @default(cuid())
+ pairId String
+ pair BankTransferPair @relation(fields:[pairId],references:[id],onDelete:Restrict)
+ requestId String @unique
+ fingerprint String
+ previous Json
+ next Json
+ reason String
+ createdAt DateTime @default(now())
+}
+model TransferApproval {
+ id String @id @default(cuid())
+ companyId String
+ company Company @relation(fields:[companyId],references:[id],onDelete:Restrict)
+ title String
+ untilDate DateTime @db.Date
+ rows Json
+ basis String
+ totalAmount Decimal @db.Decimal(20,0)
+ state String @default("DRAFT")
+ approvedBy String?
+ approvalDate DateTime? @db.Date
+ version Int @default(0)
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ changes TransferApprovalChange[]
+ @@index([companyId,createdAt])
+}
+model TransferApprovalChange {
+ id String @id @default(cuid())
+ approvalId String
+ approval TransferApproval @relation(fields:[approvalId],references:[id],onDelete:Restrict)
+ requestId String @unique
+ fingerprint String
+ operation String
  previous Json
  next Json
  reason String
