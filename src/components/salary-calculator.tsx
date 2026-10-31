@@ -1,0 +1,14 @@
+"use client";
+import {useState} from "react";
+import {SALARY_DEDUCTIONS,reverseSalary,manwonToWon} from "@/lib/salary-calculator";
+import {Field,Select} from "./fields";
+const won=(n:bigint)=>`${n.toLocaleString("ko-KR")}원`;
+export function SalaryCalculator(){
+ const[mode,setMode]=useState("FIXED");const[result,setResult]=useState<ReturnType<typeof reverseSalary>|null>(null);const[error,setError]=useState("");
+ return <><form className="erp-record-form" onChange={()=>{setResult(null);setError("");}} onSubmit={e=>{e.preventDefault();const data=new FormData(e.currentTarget);try{const target=manwonToWon(String(data.get("target")));setResult(reverseSalary(mode==="FIXED"?{target,mode:"FIXED",deductions:Object.fromEntries(SALARY_DEDUCTIONS.map(([key])=>[key,String(data.get(key)??"")]))}:{target,mode:"RATE",rate:String(data.get("rate")??""),fixed:String(data.get("fixed")??"")}));setError("");}catch(e){setResult(null);setError(e instanceof Error?e.message:"입력 조건을 확인하세요.");}}}>
+ <div className="grid gap-4 md:grid-cols-2"><Field label="목표 세후 월급 (만원)" name="target" inputMode="decimal" defaultValue="250" required maxLength={21}/><Select label="역산 방법" name="mode" value={mode} onChange={e=>setMode(e.target.value)}><option value="FIXED">확인한 월 공제액으로 역산</option><option value="RATE">입력한 합산 공제율로 예상 역산</option></Select></div>
+ {mode==="FIXED"?<><p className="text-sm">확인한 근로자 부담 공제액을 입력합니다. 해당 없는 항목은 0으로 입력하세요. 공제액을 합해 목표 실수령액에 더합니다.</p><div className="grid gap-3 md:grid-cols-2">{SALARY_DEDUCTIONS.map(([key,label])=><Field key={key} label={`${label} (원)`} name={key} inputMode="numeric" required maxLength={20}/>)}</div></>:<><p className="rounded bg-amber-50 p-3 text-sm leading-6">보험료·소득세 등을 합친 예상 공제율을 직접 입력하는 방식입니다. 법정 요율이나 간이세액표 자동 계산이 아닙니다. 고정 공제액에는 공제율에 포함되지 않은 금액만 입력하세요.</p><Field label="합산 공제율 (%)" name="rate" inputMode="decimal" placeholder="예: 10 (설명용 예시이며 법정 요율 아님)" required maxLength={7}/><Field label="별도 고정 공제액 (원)" name="fixed" inputMode="numeric" required maxLength={20}/></>}
+ <Field label="계산 조건 메모 (선택)" name="note" maxLength={200} placeholder="예: 적용월·부양가족 조건·공제액 확인 근거"/>
+ {error&&<p role="alert" className="text-red-700">{error}</p>}<button className="erp-button erp-button-primary">세전 급여 역산하기</button></form>
+ {result&&<div className="mt-5 rounded border border-blue-200 bg-blue-50 p-4"><h2 className="mb-3 text-lg font-bold">역산 결과 · 입력 조건 기준</h2><p className="mb-4 text-xl font-bold">예상 세전 월급 {won(result.gross)}</p><table data-erp-report-title="급여 역산 결과"><thead><tr><th>항목</th><th>금액</th></tr></thead><tbody><tr><td>세전 월급</td><td>{won(result.gross)}</td></tr>{result.lines.map(l=><tr key={l.label}><td>{l.label}</td><td>{won(l.amount)}</td></tr>)}<tr><td>공제 합계</td><td>{won(result.deduction)}</td></tr><tr><td>예상 세후 월급</td><td>{won(result.net)}</td></tr></tbody></table><p className="mt-3 text-xs leading-6">계산 조건이 바뀌면 다시 계산합니다. 급여액에 따라 보험료 상·하한과 과세표가 달라질 수 있으므로 실제 계약·지급 전 해당 월의 공제 조건으로 대조하세요.</p></div>}</>;
+}

@@ -2,6 +2,8 @@ import {readFile,writeFile,mkdir,copyFile} from "node:fs/promises";
 import {chromium} from "@playwright/test";
 const output="/workspace/artifacts";
 const screens=[
+ ["급여 역산 계산기","salary-calculator","인사"],
+ ["일용직 월별 공수 입력","work-batch","인사"],
  ["상용직 급여대장","monthly-payroll","인사"],
  ["일용직 급여대장","daily-payroll","인사"],
  ["예산안 · 원본 엑셀 배치","company-budget","자금"],
