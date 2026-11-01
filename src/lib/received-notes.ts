@@ -1,3 +1,4 @@
+import {assertPeriodsOpen} from "./period-guard";
 import { createHash,randomUUID } from "node:crypto";
 import type { Prisma } from "@/generated/prisma/client";
 import { COMPANY_ID } from "./constants";
@@ -12,6 +13,7 @@ export async function createReceivedNote(tx:Prisma.TransactionClient,data:FormDa
  if(receivedDate.toISOString().slice(0,10)>koreanToday())throw new InputError("실제 받은 어음만 등록하세요. 수취일은 오늘 이후일 수 없습니다.");
  const value=amount(text(data,"amount","액면금액",true,20),"액면금액")!;if(BigInt(value)<=0n)throw new InputError("액면금액은 0보다 커야 합니다.");const mode=choice(text(data,"scheduleMode","예정 연결",true),["NEW","EXISTING"] as const,"예정 연결");const cashPlanId=text(data,"cashPlanId","기존 예정",false,50);const note=text(data,"note","수취어음 비고",false,500);const reason=text(data,"reason","등록 사유",true,300);
  const fingerprint=digest({reference,partnerId,projectId,receivedDate,dueDate,value,mode,cashPlanId,note,reason});const previous=await replay(tx,requestId,fingerprint);if(previous)return previous;
+ await assertPeriodsOpen(tx,receivedDate);
  const [partner,project]=await Promise.all([tx.partner.findFirst({where:{id:partnerId,companyId:COMPANY_ID,active:true,type:{in:["CLIENT","BOTH"]}}}),projectId?tx.project.findFirst({where:{id:projectId,companyId:COMPANY_ID,active:true}}):null]);if(!partner||(projectId&&!project))throw new InputError("사용 중인 회사 발주·매출 거래처와 현장을 선택하세요.");
  let planId="";
  if(mode==="EXISTING"){
@@ -33,6 +35,7 @@ export async function discountReceivedNote(tx:Prisma.TransactionClient,data:Form
  const bank=await tx.bankTransaction.findFirst({where:{id:transactionId,account:{companyId:COMPANY_ID},direction:"IN",internalTransfer:false},include:{cashSettlements:{where:{voidedAt:null}}}});if(!bank||bank.tradedDate<note.receivedDate||bank.tradedDate>=note.dueDate||bank.tradedDate.toISOString().slice(0,10)>koreanToday())throw new InputError("수취일 이후·만기 전 실제 은행 입금을 선택하세요. 계좌 간 이체는 사용할 수 없습니다.");
  const used=bank.cashSettlements.reduce((sum,s)=>sum+BigInt(s.amount.toFixed(0)),0n);if(used+BigInt(net)>BigInt(bank.amount.toFixed(0)))throw new InputError("실입금액이 은행 거래의 연결 가능한 금액을 초과합니다.");
  const planChanged=await tx.cashPlan.updateMany({where:{id:note.cashPlanId,companyId:COMPANY_ID,version:note.cashPlan.version,completedAt:null},data:{completedAt:new Date(),completionNote:`수취어음 할인 · 할인료 ${fee}원 · ${reason}`,version:{increment:1}}});if(planChanged.count!==1)throw new InputError("연결된 예정이 변경되었습니다. 다시 조회하세요.");
+ await assertPeriodsOpen(tx,bank.tradedDate);
  const bankChanged=await tx.bankTransaction.updateMany({where:{id:bank.id,settlementVersion:bank.settlementVersion,classificationVersion:bank.classificationVersion,internalTransfer:false},data:{settlementVersion:{increment:1}}});if(bankChanged.count!==1)throw new InputError("은행 연결 상태가 변경되었습니다. 다시 조회하세요.");
  const settlement=await tx.cashSettlement.create({data:{planId:note.cashPlanId,bankTransactionId:bank.id,processedDate:bank.tradedDate,amount:net,finalized:true,note:`수취어음 할인 ${note.reference} · 액면 ${note.amount.toFixed(0)}원 · 할인료 ${fee}원 · ${reason}`,requestId}});
  const changed=await tx.receivedNote.updateMany({where:{id,companyId:COMPANY_ID,version,status:"HELD"},data:{status:"DISCOUNTED",realizedDate:bank.tradedDate,discountFee:fee,netProceeds:net,version:{increment:1}}});if(changed.count!==1)throw new InputError("어음 상태가 변경되었습니다. 다시 조회하세요.");
@@ -43,6 +46,7 @@ export async function changeReceivedNote(tx:Prisma.TransactionClient,data:FormDa
  const note=await tx.receivedNote.findFirst({where:{id,companyId:COMPANY_ID},include:{cashPlan:{include:{settlements:{where:{voidedAt:null}}}}}});if(!note||note.version!==version)throw new InputError("어음이 변경되었습니다. 다시 조회하세요.");
  const next=operation==="void"?"VOID":operation==="mature"?"MATURED":"DISCOUNTED";
  if(operation==="void"){
+  await assertPeriodsOpen(tx,note.receivedDate);
   if(note.status!=="HELD"||note.cashPlan.completedAt||note.cashPlan.settlements.length)throw new InputError("실적이 없는 보유 어음만 등록 취소할 수 있습니다. 먼저 현금화 실적을 취소하세요.");
   const changed=await tx.cashPlan.updateMany({where:{id:note.cashPlanId,companyId:COMPANY_ID,version:note.cashPlan.version,completedAt:null},data:{completedAt:new Date(),completionNote:`수취어음 등록 취소: ${reason}`,version:{increment:1}}});if(changed.count!==1)throw new InputError("연결된 예정이 변경되었습니다. 다시 조회하세요.");
  }else if(operation==="mature"){

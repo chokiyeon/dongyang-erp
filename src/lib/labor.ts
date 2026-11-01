@@ -1,3 +1,4 @@
+import {assertPeriodsOpen,assertEmploymentPeriodsOpen} from "./period-guard";
 import {invalidateSourceCosts} from "./source-cost-invalidation";
 import {createHash} from "node:crypto";
 import type {Prisma,PrismaClient} from "@/generated/prisma/client";
@@ -25,6 +26,8 @@ export async function saveLabor(tx:Prisma.TransactionClient,op:"employee"|"rate"
   if(employee){if(employee.kind!==kind&&(await tx.employmentRate.count({where:{employeeId}})||await tx.workRecord.count({where:{employeeId}})))throw new InputError("계약·출역 이력이 있는 직원의 급여 구분은 변경할 수 없습니다. 별도 고용 코드를 사용하세요.");
    if(await tx.workRecord.count({where:{employeeId,voidedAt:null,OR:[{workedDate:{lt:startDate}},...(endDate?[{workedDate:{gt:endDate}}]:[])]}}))throw new InputError("입사·퇴사 기간 밖의 출역이 있습니다. 출역을 먼저 확인하세요.");
   }
+  if(employee&&(employee.kind!==kind||employee.startDate.getTime()!==startDate.getTime()||(employee.endDate?.getTime()??null)!==(endDate?.getTime()??null)))await assertEmploymentPeriodsOpen(tx,employee.id);
+  if(!employee)await assertPeriodsOpen(tx,startDate);
   const hasPayee=data.has("payeeBank")||data.has("payeeAccount")||data.has("payeeHolder");
   const payeeBank=hasPayee?text(data,"payeeBank","급여 송금 은행",false,50)||null:employee?.payeeBank??null;
   const rawAccount=hasPayee?text(data,"payeeAccount","급여 송금 계좌번호",false,40):employee?.payeeAccount??"";const payeeAccount=rawAccount?normalizePayeeAccount(rawAccount):null;
@@ -38,10 +41,11 @@ export async function saveLabor(tx:Prisma.TransactionClient,op:"employee"|"rate"
   const id=text(data,"rateId","계약 단가",false,50);const old=id?await tx.employmentRate.findFirst({where:{id,employeeId}}):null;
   if(id&&(!old||old.voidedAt||old.version!==revision(data)))throw new InputError("계약 단가가 변경되었습니다. 다시 조회하세요.");
   if(op==="rateVoid"){
-   if(!old)throw new InputError("취소할 계약 단가를 선택하세요.");if(await tx.workRecord.count({where:{rateId:old.id,voidedAt:null}}))throw new InputError("사용 중인 출역의 계약입니다. 출역을 먼저 정정·취소하세요.");await lock();await tx.employmentRate.update({where:{id:old.id},data:{voidedAt:new Date(),version:{increment:1}}});previous=old;next={id:employeeId,rateId:old.id,voided:true};
+   if(!old)throw new InputError("취소할 계약 단가를 선택하세요.");await assertEmploymentPeriodsOpen(tx,employeeId,old.effectiveDate);if(await tx.workRecord.count({where:{rateId:old.id,voidedAt:null}}))throw new InputError("사용 중인 출역의 계약입니다. 출역을 먼저 정정·취소하세요.");await lock();await tx.employmentRate.update({where:{id:old.id},data:{voidedAt:new Date(),version:{increment:1}}});previous=old;next={id:employeeId,rateId:old.id,voided:true};
   }else{
    const effectiveDate=date(text(data,"effectiveDate","계약 적용일",true),"계약 적용일")!;const role=choice(text(data,"role","작업 구분",true),["NORMAL","SIGNAL"] as const,"작업 구분");const value=amount(text(data,"amount","계약 금액",true,20),"계약 금액")!;
    if(BigInt(value)<=0n)throw new InputError("계약 금액은 0보다 커야 합니다.");if(effectiveDate<employee!.startDate||(employee!.endDate&&effectiveDate>employee!.endDate))throw new InputError("고용 기간 안의 계약 적용일을 입력하세요.");if(employee!.kind==="MONTHLY"&&role!=="NORMAL")throw new InputError("월급제는 일반 구분의 월 기준액만 등록합니다.");
+   await assertEmploymentPeriodsOpen(tx,employeeId,old&&old.effectiveDate<effectiveDate?old.effectiveDate:effectiveDate);
    await lock();if(await tx.employmentRate.count({where:{employeeId,role,effectiveDate,voidedAt:null,...(id?{id:{not:id}}:{})}}))throw new InputError("같은 적용일·작업 구분의 계약이 있습니다. 기존 계약을 수정하세요.");
    if(old&&(old.role!==role||old.effectiveDate.getTime()!==effectiveDate.getTime())&&await tx.workRecord.count({where:{rateId:old.id}}))throw new InputError("출역 이력이 있는 계약의 적용일·작업 구분은 변경할 수 없습니다. 새 계약을 추가하세요.");
    const values={effectiveDate,role,amount:value};const saved=old?await tx.employmentRate.update({where:{id:old.id},data:{...values,version:{increment:1}}}):await tx.employmentRate.create({data:{...values,employeeId}});previous=old??{};next={id:employeeId,rate:saved};
@@ -49,10 +53,11 @@ export async function saveLabor(tx:Prisma.TransactionClient,op:"employee"|"rate"
  }else{
   const id=text(data,"workId","출역",false,50);const old=id?await tx.workRecord.findFirst({where:{id,employeeId}}):null;if(id&&(!old||old.voidedAt||old.version!==revision(data)))throw new InputError("출역 내역이 변경되었습니다. 다시 조회하세요.");
   if(op==="workVoid"){
-   if(!old)throw new InputError("취소할 출역을 선택하세요.");await lock();await tx.workRecord.update({where:{id:old.id},data:{voidedAt:new Date(),voidReason:reason,version:{increment:1}}});previous=old;next={id:old.id,voided:true};result=old.id;
+   if(!old)throw new InputError("취소할 출역을 선택하세요.");await assertPeriodsOpen(tx,old.workedDate);await lock();await tx.workRecord.update({where:{id:old.id},data:{voidedAt:new Date(),voidReason:reason,version:{increment:1}}});previous=old;next={id:old.id,voided:true};result=old.id;
   }else{
    if(employee!.kind!=="DAILY")throw new InputError("사무실 월급제 직원은 출역을 입력하지 않습니다.");if(!employee!.active&&!old)throw new InputError("사용 중인 직원을 선택하세요.");
    const workedDate=date(text(data,"workedDate","작업일",true),"작업일")!;if(workedDate.toISOString().slice(0,10)>koreanToday())throw new InputError("미래 날짜의 실제 출역은 입력할 수 없습니다.");if(workedDate<employee!.startDate||(employee!.endDate&&workedDate>employee!.endDate))throw new InputError("입사·퇴사 기간 안의 작업일을 입력하세요.");
+   await assertPeriodsOpen(tx,workedDate,old?.workedDate);
    const role=choice(text(data,"role","작업 구분",true),["NORMAL","SIGNAL"] as const,"작업 구분");const projectId=text(data,"projectId","현장",true,50);if(!await tx.project.findFirst({where:{id:projectId,companyId:COMPANY_ID}}))throw new InputError("회사 현장을 선택하세요.");
    const units=text(data,"units","공수",true,5);laborUnits(units);await lock();
    if(await tx.workRecord.count({where:{employeeId,projectId,workedDate,role,voidedAt:null,...(id?{id:{not:id}}:{})}}))throw new InputError("같은 직원·날짜·현장·작업 구분의 출역이 있습니다. 기존 내역을 수정하세요.");

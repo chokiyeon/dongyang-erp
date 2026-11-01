@@ -1,4 +1,5 @@
 "use server";
+import {amendCashSchedule} from "@/lib/cash-schedule";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
@@ -27,4 +28,8 @@ export async function voidSettlementAction(_previous: FormState, data: FormData)
   try { id = await getDb().$transaction((tx) => voidCashSettlement(tx, data)); }
   catch (error) { return { error: error instanceof InputError ? error.message : "처리 내역을 취소하지 못했습니다. 다시 확인해 주세요." }; }
   revalidatePath("/", "layout"); redirect(`/cash?process=${id}&saved=1`);
+}
+
+export async function amendScheduleAction(_s:FormState,d:FormData):Promise<FormState>{
+ await requireAdmin();let id="";try{id=await getDb().$transaction(tx=>amendCashSchedule(tx,d),{timeout:30000});}catch(e){return{error:e instanceof InputError?e.message:"예정이 변경되었거나 저장하지 못했습니다. 다시 조회하세요."};}revalidatePath("/","layout");redirect(`/cash?process=${id}&saved=1`);
 }

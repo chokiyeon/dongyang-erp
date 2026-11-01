@@ -1,3 +1,4 @@
+import {assertPeriodsOpen} from "./period-guard";
 import { createHash } from "node:crypto";
 import type { Prisma } from "@/generated/prisma/client";
 import { COMPANY_ID } from "./constants";
@@ -34,6 +35,7 @@ export async function savePaymentAllocations(tx: Prisma.TransactionClient, data:
   if (projects.length !== ids.length) throw new InputError("회사에 등록된 현장을 선택해 주세요.");
   const previousIds = new Set(transaction.paymentAllocations.map((r) => r.projectId));
   if (projects.some((p) => !p.active && !previousIds.has(p.id))) throw new InputError("새 배분은 사용 중인 현장에만 등록할 수 있습니다.");
+  await assertPeriodsOpen(tx,transaction.tradedDate);
   const changed = await tx.bankTransaction.updateMany({ where: { id: transactionId, account: { companyId: COMPANY_ID }, allocationVersion: version, classificationVersion: transaction.classificationVersion }, data: { allocationVersion: { increment: 1 } } });
   if (changed.count !== 1) throw new InputError("거래가 변경되었습니다. 다시 조회해 주세요.");
   const previous = transaction.paymentAllocations.map((r) => ({ projectId: r.projectId ?? "", category: r.category, amount: r.amount.toFixed(0), note: r.note }));

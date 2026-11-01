@@ -61,3 +61,18 @@ test("이미 다른 예정에 반영된 은행 연결은 중복 연결을 거부
   assert.equal(await db.tradeDocument.count({where:{id:documentId}}),0);assert.equal(await db.partner.count({where:{id:partnerId}}),0);
  }finally{await db.$disconnect();}
 });
+test("이미 예산안에 반영한 은행 실적을 청구에 승계해도 금액·일자·요청 ID와 실제 건수를 보존한다",async()=>{
+ const db=getDb(),rollback=new Error("adoption rollback");try{await assert.rejects(db.$transaction(async tx=>{
+  await tx.company.upsert({where:{id:COMPANY_ID},create:{id:COMPANY_ID,name:"승계 합성 회사"},update:{}});const partner=await tx.partner.create({data:{companyId:COMPANY_ID,code:randomUUID(),name:"합성 발주처"}}),account=await tx.bankAccount.create({data:{companyId:COMPANY_ID,bankName:"검증",label:randomUUID()}});
+  for(const amount of["400","1100"]){
+   const plan=await tx.cashPlan.create({data:{companyId:COMPANY_ID,title:"기존 수금 예정",direction:"IN",category:"공사대금",plannedDate:new Date("2026-11-30"),plannedAmount:1100}});const bank=await tx.bankTransaction.create({data:{accountId:account.id,tradedDate:new Date("2026-10-15"),direction:"IN",amount,description:"청구 전 받은 금액"}});
+   const original=form({planId:plan.id,version:"0",bankTransactionId:bank.id,requestId:randomUUID(),amount,note:"기존 은행 반영"});await settleCashPlan(tx,original);const before=await tx.cashSettlement.findUniqueOrThrow({where:{requestId:String(original.get("requestId"))}});
+   const doc=await tx.tradeDocument.create({data:{companyId:COMPANY_ID,partnerId:partner.id,kind:"SALE",reference:randomUUID(),title:"사후 매출 청구",issuedDate:new Date("2026-10-20"),dueDate:new Date("2026-10-31"),supplyAmount:1000,taxAmount:100,grossAmount:1100,taxKind:"TAXABLE",evidence:"TAX_INVOICE",proofConfirmed:true,note:"합성"}});
+   const values={documentId:doc.id,version:"0",requestId:randomUUID(),mode:"EXISTING",cashPlanId:plan.id,noDuplicate:"on",reason:"선수금과 청구 대조"};await assert.rejects(connectTradeCashPlan(tx,form(values)),/기존 은행 실적/);await connectTradeCashPlan(tx,form({...values,existingPaidConfirmed:"on"}));
+   const after=await tx.cashSettlement.findUniqueOrThrow({where:{id:before.id}});assert.equal(after.requestId,before.requestId);assert.equal(after.planId,before.planId);assert.equal(after.amount.toFixed(0),amount);assert.equal(after.processedDate.getTime(),before.processedDate.getTime());assert.ok(after.tradeBankLinkId);assert.equal(await tx.cashSettlement.count({where:{planId:plan.id}}),1);assert.equal((await tx.tradeDocument.findUniqueOrThrow({where:{id:doc.id}})).settledAmount.toFixed(0),amount);
+   await settleCashPlan(tx,original);assert.equal(await tx.cashSettlement.count({where:{planId:plan.id}}),1);
+   const current=await tx.tradeDocument.findUniqueOrThrow({where:{id:doc.id}});await unlinkTradeBank(tx,form({linkId:after.tradeBankLinkId!,version:String(current.version),reason:"승계 연결 정정"}));const restored=await tx.cashPlan.findUniqueOrThrow({where:{id:plan.id},include:{settlements:true}});assert.equal(cashSummary(restored).actual,0n);assert.equal(cashSummary(restored).remaining,1100n);assert.ok(restored.settlements[0].voidedAt);
+  }
+  throw rollback;
+ },{timeout:30000}),e=>e===rollback);}finally{await db.$disconnect();}
+});

@@ -1,3 +1,4 @@
+import {assertPeriodsOpen} from "./period-guard";
 import { createHash, randomUUID } from "node:crypto";
 import type { Prisma } from "@/generated/prisma/client";
 import { COMPANY_ID } from "./constants";
@@ -48,6 +49,7 @@ export async function importLegacyLedgerRows(tx: Prisma.TransactionClient, data:
     if (suspected && data.get("allowSuspected") !== "on") throw new InputError(`${r.sourceRow}행은 기존 거래와 중복이 의심됩니다. 서로 다른 실제 거래인지 확인해 주세요.`);
     records.push({ accountId, tradedDate, direction: direction as "IN" | "OUT", amount: value, description, bankBalance: null, accountingCodeId: null, businessType: null, requestId: randomUUID(), importKey, source: "LEGACY_XLSX", legacySheet: sheet, legacyRow: Number(r.sourceRow), legacyCategory, legacyBankLabel: bankLabel, legacyIncomingType: incomingType, legacyLedgerBalance: ledgerBalance });
   }
+  await assertPeriodsOpen(tx,...records.map(r=>r.tradedDate as Date|string));
   const added = records.length ? (await tx.bankTransaction.createMany({ data: records, skipDuplicates: true })).count : 0;
   return { added, skipped: skipped + records.length - added };
 }

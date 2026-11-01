@@ -1,3 +1,4 @@
+import {assertPeriodsOpen} from "./period-guard";
 import type { Prisma } from "@/generated/prisma/client";
 import { COMPANY_ID } from "./constants";
 import { InputError, date, revision, text } from "./validation";
@@ -15,6 +16,7 @@ export function koreanToday() {
 export async function saveBaseline(tx: Prisma.TransactionClient, data: FormData) {
   const baseDate = date(text(data, "baseDate", "잔액 기준일", true), "잔액 기준일");
   if (!baseDate || baseDate.toISOString().slice(0, 10) > koreanToday()) throw new InputError("잔액 기준일은 오늘 이후로 설정할 수 없습니다.");
+  await assertPeriodsOpen(tx,baseDate);
   const value = signedAmount(text(data, "baseAmount", "기준 잔액", true, 21));
   const note = text(data, "baseNote", "잔액 확인 근거", true, 300);
   const version = revision(data);

@@ -1,3 +1,5 @@
+import {RECEIPT_MILESTONES} from "./cash-schedule-types";
+import {assertPeriodsOpen} from "./period-guard";
 import { createHash } from "node:crypto";
 import type { Prisma } from "@/generated/prisma/client";
 import { COMPANY_ID } from "./constants";
@@ -21,19 +23,23 @@ export async function createCashPlan(tx: Prisma.TransactionClient, data: FormDat
   if (!plannedDate || !plannedAmount || BigInt(plannedAmount) <= 0n) throw new InputError("예정금액은 0보다 커야 합니다.");
   const requestId = text(data, "requestId", "요청 식별자", true, 50);
   if (!/^[a-f0-9-]{36}$/i.test(requestId)) throw new InputError("화면을 새로 열어 주세요.");
+  const projectId=text(data,"projectId","공사 현장",false,50)||null;const milestoneInput=text(data,"milestone","수금 단계",false,30);const milestone=milestoneInput?choice(milestoneInput,Object.keys(RECEIPT_MILESTONES),"수금 단계"):null;
+  if(projectId&&!await tx.project.findFirst({where:{id:projectId,companyId:COMPANY_ID,active:true}}))throw new InputError("사용 중인 회사 현장을 선택하세요.");
   const values = {
-    companyId: COMPANY_ID,
+    projectId,milestone,companyId: COMPANY_ID,
     title: text(data, "title", "내용", true, 200),
     category: choice(text(data, "category", "항목"), CASH_CATEGORIES, "항목"),
     direction: choice(text(data, "direction", "입출금 구분"), ["IN", "OUT"] as const, "입출금 구분"),
     certainty: choice(text(data, "certainty", "확정 여부"), ["CONFIRMED", "ESTIMATED"] as const, "확정 여부"),
     plannedDate, plannedAmount, requestId,
   };
+  if(milestone&&(!projectId||values.direction!=="IN"||values.category!=="공사대금"))throw new InputError("수금 단계는 현장을 선택한 공사대금 입금 예정에서 사용하세요.");
   const previous = await tx.cashPlan.findUnique({ where: { requestId } });
   if (previous) {
-    if (previous.companyId === COMPANY_ID && previous.title === values.title && previous.plannedAmount.toFixed(0) === plannedAmount && previous.plannedDate.getTime() === plannedDate.getTime() && previous.direction === values.direction && previous.certainty === values.certainty && previous.category === values.category) return;
+    if (previous.companyId === COMPANY_ID && previous.projectId===projectId && previous.milestone===milestone && previous.title === values.title && previous.plannedAmount.toFixed(0) === plannedAmount && previous.plannedDate.getTime() === plannedDate.getTime() && previous.direction === values.direction && previous.certainty === values.certainty && previous.category === values.category) return;
     throw new InputError("이미 사용된 요청입니다. 화면을 새로 열어 주세요.");
   }
+  await assertPeriodsOpen(tx,plannedDate);
   await tx.cashPlan.create({ data: values });
 }
 
@@ -53,9 +59,10 @@ export async function settleCashPlan(tx: Prisma.TransactionClient, data: FormDat
   if (!/^[a-f0-9-]{36}$/i.test(requestId) || !processedDate || !inputAmount) throw new InputError("처리 내역을 확인해 주세요.");
   const previous = await tx.cashSettlement.findUnique({ where: { requestId }, include: { plan: true } });
   if (previous) {
-    if (previous.plan.companyId === COMPANY_ID && previous.planId === planId && previous.bankTransactionId === bankTransactionId && previous.amount.toFixed(0) === inputAmount && previous.processedDate.getTime() === processedDate.getTime() && (previous.note ?? "") === note && previous.finalized === finish) return;
+    if (previous.plan.companyId === COMPANY_ID && (previous.planId === planId || previous.originPlanId === planId) && previous.bankTransactionId === bankTransactionId && previous.amount.toFixed(0) === inputAmount && previous.processedDate.getTime() === processedDate.getTime() && (previous.note ?? "") === note && previous.finalized === finish) return;
     throw new InputError("이미 사용된 요청입니다. 화면을 새로 열어 주세요.");
   }
+  await assertPeriodsOpen(tx,processedDate);
   const plan = await tx.cashPlan.findFirst({ where: { id: planId, companyId: COMPANY_ID }, include: { settlements: true, issuedNote: true, receivedNote: true, tradeDocument:true } });
   if (!plan || plan.version !== version || plan.completedAt) throw new InputError("이미 처리되었거나 변경된 내역입니다. 목록에서 다시 열어 주세요.");
   if (plan.tradeDocument) throw new InputError("매입·매출에 연결된 예정입니다. 매입·매출 화면에서 은행 연결을 처리하면 예산안에도 함께 반영됩니다.");
@@ -105,6 +112,7 @@ export async function voidCashSettlement(tx: Prisma.TransactionClient, data: For
   if (settlement.plan.tradeDocument) throw new InputError("매입·매출 화면에서 은행 연결을 해제하면 예산안 실적도 함께 취소됩니다.");
   if (settlement.plan.issuedNote && settlement.plan.issuedNote.status !== "SETTLED") throw new InputError("어음 상태가 변경되었습니다. 어음대장에서 확인해 주세요.");
   if (settlement.plan.receivedNote && !["COLLECTED", "DISCOUNTED"].includes(settlement.plan.receivedNote.status)) throw new InputError("수취어음 상태를 확인하세요. 할인 만기 확인을 완료했다면 먼저 만기 확인을 취소해야 합니다.");
+  await assertPeriodsOpen(tx,settlement.processedDate);
   const latest = await tx.cashSettlement.findFirst({ where: { planId: settlement.planId, voidedAt: null }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
   if (latest?.id !== id) throw new InputError("가장 최근에 등록한 유효 처리부터 순서대로 취소해 주세요.");
   const updated = await tx.cashPlan.updateMany({ where: { id: settlement.planId, companyId: COMPANY_ID, version }, data: { version: { increment: 1 }, completedAt: null, completionNote: null } });

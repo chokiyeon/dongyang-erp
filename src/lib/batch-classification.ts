@@ -1,3 +1,4 @@
+import {assertPeriodsOpen} from "./period-guard";
 import { createHash } from "node:crypto";
 import type { Prisma } from "@/generated/prisma/client";
 import { COMPANY_ID } from "./constants";
@@ -31,6 +32,7 @@ export async function applyClassificationBatch(tx: Prisma.TransactionClient, dat
   if(await tx.bankTransferMember.count({where:{transactionId:{in:selected.map(r=>r.id)},transaction:{account:{companyId:COMPANY_ID}}}}))throw new InputError("통장 간 이체 연결을 먼저 해제하세요.");
   const rows = await tx.bankTransaction.findMany({ where: { id: { in: selected.map((r) => r.id) }, account: { companyId: COMPANY_ID } }, include: { _count: { select: { paymentAllocations: true, tradeLinks: { where: { voidedAt: null } }, cashSettlements: { where: { voidedAt: null } } } } } });
   if (rows.length !== selected.length) throw new InputError("회사 거래인지 확인한 뒤 다시 선택해 주세요.");
+  await assertPeriodsOpen(tx,...rows.map(r=>r.tradedDate));
   const versions = new Map(selected.map((r) => [r.id, r.version]));
   if (rows.some((r) => r.accountingCodeId !== null || r.classificationVersion !== versions.get(r.id))) throw new InputError("이미 분류되었거나 변경된 거래가 포함되어 있습니다. 다시 조회해 주세요.");
   const direction = rows[0].direction;
@@ -59,6 +61,7 @@ export async function undoClassificationBatch(tx: Prisma.TransactionClient, data
   if (batch.items.some((item) => item.previousInternalTransfer && item.transaction._count.paymentAllocations)) throw new InputError("되돌리면 계좌 간 이체가 되는 거래에 현장 배분이 있습니다. 배분을 먼저 해제해 주세요.");
   if (batch.items.some((item) => item.previousInternalTransfer && item.transaction._count.tradeLinks)) throw new InputError("되돌리면 계좌 간 이체가 되는 거래에 매입·매출 은행 연결이 있습니다. 연결을 먼저 해제해 주세요.");
   if (batch.items.some((item) => item.previousInternalTransfer && item.transaction._count.cashSettlements)) throw new InputError("되돌리면 계좌 간 이체가 되는 거래에 예정 처리 실적이 있습니다. 실적을 먼저 취소해 주세요.");
+  await assertPeriodsOpen(tx,...batch.items.map(i=>i.transaction.tradedDate));
   const marked = await tx.classificationBatch.updateMany({ where: { id, companyId: COMPANY_ID, undoneAt: null }, data: { undoneAt: new Date(), undoReason: reason } });
   if (marked.count !== 1) throw new InputError("다른 화면에서 이 작업을 처리했습니다. 다시 조회해 주세요.");
   for (const item of batch.items) {

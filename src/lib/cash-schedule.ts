@@ -1,0 +1,24 @@
+import {createHash} from "node:crypto";
+import type {Prisma} from "@/generated/prisma/client";
+import {COMPANY_ID} from "./constants";
+import {InputError,text,revision,date,amount,choice} from "./validation";
+import {createCashPlan,cashSummary} from "./cash";
+import {assertPeriodsOpen} from "./period-guard";
+import {RECEIPT_MILESTONES} from "./cash-schedule-types";
+const digest=(d:FormData)=>createHash("sha256").update(JSON.stringify(Object.fromEntries([...d.entries()].sort(([a],[b])=>a.localeCompare(b))))).digest("hex");
+export async function createProjectReceipt(tx:Prisma.TransactionClient,d:FormData){
+ const reason=text(d,"reason","수금 일정 근거",true,300),requestId=text(d,"requestId","요청",true,50);if(d.get("confirmed")!=="on")throw new InputError("계약의 수금 단계·부가세 포함 금액·일정을 확인하세요.");
+ const fingerprint=digest(d);const replay=await tx.financeChange.findUnique({where:{requestId}});if(replay){if(replay.companyId!==COMPANY_ID||replay.fingerprint!==fingerprint)throw new InputError("다른 내용으로 사용된 요청입니다.");return replay.entityId;}
+ text(d,"projectId","수금 현장",true,50);choice(text(d,"milestone","수금 단계",true),Object.keys(RECEIPT_MILESTONES),"수금 단계");const normalized=new FormData();for(const[key,value]of d.entries())normalized.append(key,value);normalized.set("category","공사대금");normalized.set("direction","IN");await createCashPlan(tx,normalized);const plan=await tx.cashPlan.findUniqueOrThrow({where:{requestId}});
+ await tx.financeChange.create({data:{companyId:COMPANY_ID,entityId:plan.id,requestId,operation:"projectReceipt",fingerprint,previous:{},next:JSON.parse(JSON.stringify(plan)),reason}});return plan.id;
+}
+export async function amendCashSchedule(tx:Prisma.TransactionClient,d:FormData){
+ const id=text(d,"planId","자금예정",true,50),version=revision(d),requestId=text(d,"requestId","요청",true,50),reason=text(d,"reason","예정 정정 사유",true,300);if(!/^[a-f0-9-]{36}$/i.test(requestId))throw new InputError("예정 정정 화면을 다시 열어 주세요.");const fingerprint=digest(d);const replay=await tx.financeChange.findUnique({where:{requestId}});if(replay){if(replay.companyId!==COMPANY_ID||replay.fingerprint!==fingerprint)throw new InputError("다른 내용으로 사용된 요청입니다.");return id;}
+ const plan=await tx.cashPlan.findFirst({where:{id,companyId:COMPANY_ID},include:{settlements:true,tradeDocument:true,monthlyPayment:true,payroll:true,issuedNote:true,receivedNote:true}});if(!plan||plan.version!==version||plan.completedAt)throw new InputError("예정이 변경되었거나 종료됐습니다. 다시 조회하세요.");if(plan.tradeDocument||plan.monthlyPayment||plan.payroll||plan.issuedNote||plan.receivedNote)throw new InputError("원본에 연결된 예정은 해당 매입·매출·정기 지급·급여·어음 화면에서 정정하세요.");
+ const plannedDate=date(text(d,"plannedDate","변경 예정일",true),"변경 예정일")!,plannedAmount=amount(text(d,"plannedAmount","변경 예정금액",true,20),"변경 예정금액")!,certainty=choice(text(d,"certainty","확정 여부",true),["CONFIRMED","ESTIMATED"] as const,"확정 여부"),title=text(d,"title","거래 내용",true,200);
+ const projectId=d.has("projectId")?text(d,"projectId","연결 현장",false,50)||null:plan.projectId;const rawStage=d.has("milestone")?text(d,"milestone","수금 단계",false,30):plan.milestone??"";const milestone=rawStage?choice(rawStage,Object.keys(RECEIPT_MILESTONES),"수금 단계"):null;
+ if(projectId&&!await tx.project.findFirst({where:{id:projectId,companyId:COMPANY_ID,...(projectId===plan.projectId?{}:{active:true})}}))throw new InputError("회사 현장을 선택하세요.");if(milestone&&(!projectId||plan.direction!=="IN"||plan.category!=="공사대금"))throw new InputError("수금 단계는 현장 공사대금 입금 예정에서만 선택하세요.");
+ const summary=cashSummary(plan);if(summary.actual>0n&&plan.projectId&&plan.projectId!==projectId)throw new InputError("실적이 있는 수금의 현장을 다른 현장으로 옮길 수 없습니다. 원본 연결을 먼저 확인하세요.");if(BigInt(plannedAmount)<=0n||BigInt(plannedAmount)<summary.actual)throw new InputError("변경 예정액은 0보다 크고 이미 처리한 실제 금액 이상이어야 합니다.");if(d.get("confirmed")!=="on")throw new InputError("이미 처리한 실제 금액과 남은 예정의 변경 근거를 확인하세요.");await assertPeriodsOpen(tx,plan.plannedDate,plannedDate);
+ const complete=BigInt(plannedAmount)===summary.actual;const changed=await tx.cashPlan.updateMany({where:{id,companyId:COMPANY_ID,version,completedAt:null},data:{projectId,milestone,title,plannedDate,plannedAmount,certainty,completedAt:complete?new Date():null,completionNote:complete?`예정 정정 후 전액 처리 일치: ${reason}`:null,version:{increment:1}}});if(changed.count!==1)throw new InputError("예정 또는 실적이 변경되었습니다. 다시 조회하세요.");
+ const saved=await tx.cashPlan.findUniqueOrThrow({where:{id}});await tx.financeChange.create({data:{companyId:COMPANY_ID,entityId:id,requestId,operation:"cashScheduleAmend",fingerprint,previous:JSON.parse(JSON.stringify({title:plan.title,plannedDate:plan.plannedDate,plannedAmount:plan.plannedAmount,certainty:plan.certainty,projectId:plan.projectId,milestone:plan.milestone,actual:summary.actual.toString()})),next:JSON.parse(JSON.stringify(saved)),reason}});return id;
+}

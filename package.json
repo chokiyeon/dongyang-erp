@@ -21,7 +21,8 @@
     "start:cloud": "node scripts/start-cloud.mjs",
     "db:backup": "node --env-file-if-exists=.env scripts/database-transfer.mjs backup",
     "db:restore": "node --env-file-if-exists=.env scripts/database-transfer.mjs restore",
-    "db:check-backup": "node scripts/check-backup.mjs"
+    "db:check-backup": "node scripts/check-backup.mjs",
+    "start:office": "node --env-file=.env.office scripts/start-office.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.2.0",

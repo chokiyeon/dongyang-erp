@@ -1,3 +1,4 @@
+import {assertPeriodsOpen} from "./period-guard";
 import { createHash } from "node:crypto";
 import type { Prisma } from "@/generated/prisma/client";
 import { COMPANY_ID } from "./constants";
@@ -39,6 +40,7 @@ export async function saveProjectProfit(tx: Prisma.TransactionClient,data:FormDa
       const value=amount(text(data,"amount","발생원가",true,20),"발생원가")!;if(BigInt(value)<=0n)throw new InputError("발생원가는 0보다 커야 합니다.");
       values={reference:text(data,"reference","추가원가 관리번호",true,50),title:text(data,"title","발생원가 내용",true,200),category:choice(text(data,"category","원가 구분",true),Object.keys(PROJECT_COST_CATEGORIES) as (keyof typeof PROJECT_COST_CATEGORIES)[],"원가 구분"),incurredDate,amount:value};
     }
+    await assertPeriodsOpen(tx,old?.incurredDate,values?.incurredDate);
     const changed=await tx.project.updateMany({where:{id:projectId,companyId:COMPANY_ID,profitVersion:version},data:{profitVersion:{increment:1}}});if(changed.count!==1)throw new InputError("원가·전망이 변경되었습니다. 다시 조회해 주세요.");
     previous=old?{id:old.id,reference:old.reference,title:old.title,category:old.category,date:old.incurredDate.toISOString(),amount:old.amount.toFixed(0)}:{};
     if(operation==="void"){await tx.projectCostEntry.update({where:{id:old!.id},data:{voidedAt:new Date(),voidReason:reason}});next={id:old!.id,voided:true};}

@@ -1,3 +1,4 @@
+import {assertPeriodsOpen} from "./period-guard";
 import {refreshTradeCashPlan} from "./trade-cash";
 import { createHash } from "node:crypto";
 import type { Prisma } from "@/generated/prisma/client";
@@ -55,6 +56,7 @@ export async function saveTradeDocument(tx: Prisma.TransactionClient, data: Form
   if (projectId) { const project = await tx.project.findFirst({ where: { id: projectId, companyId: COMPANY_ID } }); if (!project || (!project.active && previous?.projectId !== project.id)) throw new InputError("사용 중인 회사 현장을 선택해 주세요."); }
   if (previous && previous.kind !== kind) throw new InputError("매입·매출 구분은 수정할 수 없습니다. 취소 후 새로 등록해 주세요.");
   if(previous){const linked=await tx.stockMovement.aggregate({where:{documentId:id,voidedAt:null},_sum:{supplyAmount:true},_count:true});if(linked._count&&(previous.partnerId!==partnerId||BigInt(supplyAmount)<BigInt(linked._sum.supplyAmount?.toFixed(0)??"0")))throw new InputError("품목 입고가 연결된 매입입니다. 연결 품목 공급가액·거래처를 먼저 확인하세요.");}
+  await assertPeriodsOpen(tx,issuedDate,previous?.issuedDate);
   let documentId = id;
   if (previous) { const updated = await tx.tradeDocument.updateMany({ where: { id, companyId: COMPANY_ID, version, settledAmount: previous.settledAmount, voidedAt: null }, data: { ...values, version: { increment: 1 } } }); if (updated.count !== 1) throw new InputError("다른 화면에서 문서를 변경했습니다. 다시 조회해 주세요."); }
   else { documentId = (await tx.tradeDocument.create({ data: { ...values, companyId: COMPANY_ID } })).id; }
@@ -69,6 +71,7 @@ export async function voidTradeDocument(tx: Prisma.TransactionClient, data: Form
   if (!previous) throw new InputError("회사 문서를 선택해 주세요."); if (previous.voidedAt) return id;
   if (previous.settledAmount.toFixed(0) !== "0") throw new InputError("은행 연결을 먼저 해제한 뒤 취소해 주세요.");
   if(await tx.stockMovement.count({where:{documentId:id,voidedAt:null}}))throw new InputError("연결한 품목 입고를 먼저 확인·취소하세요. 실제 사용한 자재의 반품·환불은 원본을 삭제하지 말고 별도 정산하세요.");
+  await assertPeriodsOpen(tx,previous.issuedDate);
   const changed = await tx.tradeDocument.updateMany({ where: { id, companyId: COMPANY_ID, version, voidedAt: null, settledAmount: 0 }, data: { voidedAt: new Date(), voidReason: reason, version: { increment: 1 } } });
   if (changed.count !== 1) throw new InputError("문서가 변경되었습니다. 다시 조회해 주세요.");
   await tx.tradeDocumentChange.create({ data: { documentId: id, requestId, fingerprint: fingerprint({ id, version, reason, void: true }), previous: { voided: false }, next: { voided: true }, reason } });
@@ -85,6 +88,7 @@ export async function linkTradeBank(tx: Prisma.TransactionClient, data: FormData
   if (!document || document.version !== version) throw new InputError("문서가 변경되었습니다. 다시 조회해 주세요.");
   const transaction = await tx.bankTransaction.findFirst({ where: { id: transactionId, account: { companyId: COMPANY_ID }, internalTransfer: false }, include: { tradeLinks: { where: { voidedAt: null } } } });
   if (!transaction || transaction.direction !== (document.kind === "SALE" ? "IN" : "OUT")) throw new InputError("매출은 입금, 매입은 출금 거래를 선택해 주세요. 회사 계좌 간 이체는 연결할 수 없습니다.");
+  await assertPeriodsOpen(tx,transaction.tradedDate);
   const used = transaction.tradeLinks.reduce((sum,r) => sum + BigInt(r.amount.toFixed(0)), 0n);
   if (BigInt(value) > BigInt(document.grossAmount.toFixed(0)) - BigInt(document.settledAmount.toFixed(0))) throw new InputError("연결 금액이 문서의 미수·미지급 잔액을 초과합니다.");
   if (used + BigInt(value) > BigInt(transaction.amount.toFixed(0))) throw new InputError("다른 문서에 연결한 금액을 포함해 은행 거래금액을 초과합니다.");
@@ -98,6 +102,7 @@ export async function unlinkTradeBank(tx: Prisma.TransactionClient, data: FormDa
   const id = text(data, "linkId", "연결", true, 50); const version = revision(data); const reason = text(data, "reason", "해제 사유", true, 300);
   const link = await tx.tradeBankLink.findFirst({ where: { id, document: { companyId: COMPANY_ID }, transaction: { account: { companyId: COMPANY_ID } } }, include: { document: true, transaction: true } });
   if (!link) throw new InputError("회사 은행 연결을 선택해 주세요."); if (link.voidedAt) return link.documentId;
+  await assertPeriodsOpen(tx,link.transaction.tradedDate);
   const changed = await tx.tradeDocument.updateMany({ where: { id: link.documentId, version, companyId: COMPANY_ID, settledAmount: { gte: link.amount } }, data: { settledAmount: { decrement: link.amount }, version: { increment: 1 } } });
   if (changed.count !== 1) throw new InputError("문서가 변경되었습니다. 다시 조회해 주세요.");
   const bankChanged = await tx.bankTransaction.updateMany({ where: { id: link.transactionId, settlementVersion: link.transaction.settlementVersion }, data: { settlementVersion: { increment: 1 } } });

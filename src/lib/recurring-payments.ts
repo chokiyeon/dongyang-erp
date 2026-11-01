@@ -1,3 +1,4 @@
+import {assertPeriodsOpen} from "./period-guard";
 import {createHash,randomUUID} from "node:crypto";
 import type {Prisma} from "@/generated/prisma/client";
 import {COMPANY_ID} from "./constants";
@@ -19,6 +20,7 @@ export async function saveRecurringTemplate(tx:Prisma.TransactionClient,d:FormDa
 }
 export async function generateRecurringMonth(tx:Prisma.TransactionClient,d:FormData){
  const requestId=request(d);const period=paymentMonth(text(d,"period","준비할 지급월",true,7));const prior=await tx.recurringGeneration.findUnique({where:{requestId}});if(prior){if(prior.companyId!==COMPANY_ID||prior.period!==period)throw new InputError("다른 지급월로 사용된 요청입니다.");return{period,count:prior.count};}
+ await assertPeriodsOpen(tx,period);
  const templates=await tx.recurringPaymentTemplate.findMany({where:{companyId:COMPANY_ID,active:true,startMonth:{lte:period},OR:[{endMonth:null},{endMonth:{gte:period}}]},orderBy:{id:"asc"}});
  const created=await tx.monthlyPayment.createMany({data:templates.map(t=>({templateId:t.id,period,title:t.title,partnerId:t.partnerId,projectId:t.projectId,companyExpense:t.companyExpense,amount:t.defaultAmount,dueDate:new Date(recurringDue(period,t.dueDay))})),skipDuplicates:true});
  await tx.recurringGeneration.create({data:{companyId:COMPANY_ID,requestId,period,count:created.count}});return{period,count:created.count};
@@ -26,7 +28,7 @@ export async function generateRecurringMonth(tx:Prisma.TransactionClient,d:FormD
 export async function confirmMonthlyPayment(tx:Prisma.TransactionClient,d:FormData){
  const id=text(d,"monthlyId","월별 지급",true,50);const version=revision(d);const requestId=request(d);const value=amount(text(d,"amount","이번 달 실제 지급예정액",true,20),"이번 달 실제 지급예정액")!;if(BigInt(value)<=0n)throw new InputError("실제 지급예정액은 0보다 커야 합니다.");const dueDate=date(text(d,"dueDate","이번 달 지급기한",true),"이번 달 지급기한")!;const mode=choice(text(d,"sourceMode","자료 연결",true),["INVOICE","EXISTING_PLAN","NEW_PLAN"] as const,"자료 연결");const documentId=text(d,"documentId","매입 문서",false,50);const planId=text(d,"cashPlanId","기존 지출 예정",false,50);const reason=text(d,"reason","월별 지급 확인 사유",true,300);if(d.get("confirmed")!=="on")throw new InputError("이번 달 금액과 동일한 청구서·예정의 중복 여부를 확인하세요.");
  const fingerprint=digest({id,version,value,dueDate,mode,documentId,planId,reason});const replay=await tx.recurringPaymentChange.findUnique({where:{requestId},include:{template:true}});if(replay){if(replay.template.companyId!==COMPANY_ID||replay.fingerprint!==fingerprint)throw new InputError("다른 내용으로 사용된 요청입니다.");return replay.monthlyPaymentId!;}
- const row=await tx.monthlyPayment.findFirst({where:{id,template:{companyId:COMPANY_ID}},include:{document:true,cashPlan:{include:{settlements:{where:{voidedAt:null}}}}}});if(!row||row.version!==version||row.voidedAt)throw new InputError("월별 지급 내역이 변경되었습니다. 다시 조회하세요.");const partner=await sourceOwners(tx,row.partnerId,row.projectId,row.companyExpense);
+ const row=await tx.monthlyPayment.findFirst({where:{id,template:{companyId:COMPANY_ID}},include:{document:true,cashPlan:{include:{settlements:{where:{voidedAt:null}}}}}});if(!row||row.version!==version||row.voidedAt)throw new InputError("월별 지급 내역이 변경되었습니다. 다시 조회하세요.");await assertPeriodsOpen(tx,row.period);const partner=await sourceOwners(tx,row.partnerId,row.projectId,row.companyExpense);
  if(row.document&&row.document.settledAmount.toFixed(0)!=="0")throw new InputError("연결된 매입에 지급 실적이 있습니다. 원본 매입과 은행 연결부터 확인하세요.");
  if(row.document&&!row.document.voidedAt&&mode!=="INVOICE")throw new InputError("유효한 매입 문서가 연결되어 있습니다. 같은 지급을 별도 지출 예정으로 중복 만들 수 없습니다.");
  if(row.cashPlan&&(row.cashPlan.settlements.length||row.cashPlan.completedAt))throw new InputError("실적이 있거나 완료된 정기 지급입니다. 실제 처리 내역부터 확인하세요.");
@@ -50,6 +52,7 @@ export async function confirmMonthlyPayment(tx:Prisma.TransactionClient,d:FormDa
 export async function voidMonthlyPayment(tx:Prisma.TransactionClient,d:FormData){
  const id=text(d,"monthlyId","월별 지급",true,50);const version=revision(d);const requestId=request(d);const reason=text(d,"reason","월별 지급 취소 사유",true,300);const fingerprint=digest({id,version,reason,void:true});const replay=await tx.recurringPaymentChange.findUnique({where:{requestId},include:{template:true}});if(replay){if(replay.template.companyId!==COMPANY_ID||replay.fingerprint!==fingerprint)throw new InputError("다른 내용으로 사용한 요청입니다.");return id;}
  const row=await tx.monthlyPayment.findFirst({where:{id,template:{companyId:COMPANY_ID}},include:{cashPlan:{include:{settlements:{where:{voidedAt:null}}}}}});if(!row||row.version!==version||row.voidedAt)throw new InputError("월별 지급이 변경되었거나 이미 취소됐습니다.");
+ await assertPeriodsOpen(tx,row.period);
  if(row.cashPlan){if(row.cashPlan.settlements.length)throw new InputError("실제 처리 실적을 먼저 취소한 뒤 월별 지급을 취소하세요.");const changed=await tx.cashPlan.updateMany({where:{id:row.cashPlan.id,companyId:COMPANY_ID,version:row.cashPlan.version},data:{completedAt:new Date(),completionNote:`월별 정기 지급 취소: ${reason}`,version:{increment:1}}});if(changed.count!==1)throw new InputError("지출 예정이 변경됐습니다.");}
  const changed=await tx.monthlyPayment.updateMany({where:{id,version,voidedAt:null,template:{companyId:COMPANY_ID}},data:{voidedAt:new Date(),version:{increment:1}}});if(changed.count!==1)throw new InputError("월별 지급이 변경됐습니다.");
  await tx.recurringPaymentChange.create({data:{templateId:row.templateId,monthlyPaymentId:id,requestId,fingerprint,previous:{confirmed:row.confirmed,cashPlanId:row.cashPlanId,documentId:row.documentId},next:{voided:true},reason}});return id;

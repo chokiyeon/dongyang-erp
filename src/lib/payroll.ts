@@ -1,3 +1,4 @@
+import {assertPeriodsOpen} from "./period-guard";
 import {DAILY_DEDUCTIONS,dailyRateGroups,calculateDailyPay,readDailyPayDetails} from "./daily-payroll-details";
 import {MONTHLY_PAY_FIELDS,calculateMonthlyPay,readMonthlyPayDetails} from "./monthly-payroll-details";
 import {invalidateSourceCosts} from "./source-cost-invalidation";
@@ -15,6 +16,7 @@ export async function payrollBasis(db:PrismaClient|Prisma.TransactionClient,peri
 export async function savePayroll(tx:Prisma.TransactionClient,op:"confirm"|"void",d:FormData){
  const employeeId=text(d,"employeeId","직원",true,50);const period=text(d,"period","급여월",true,7);const requestId=text(d,"requestId","요청",true,50);const reason=text(d,"reason","급여 확인 사유",true,300);if(!/^[a-f0-9-]{36}$/i.test(requestId))throw new InputError("화면을 다시 열어 주세요.");
  const fingerprint=createHash("sha256").update(JSON.stringify({op,values:Object.fromEntries([...d.entries()].sort(([a],[b])=>a.localeCompare(b)))})).digest("hex");const replay=await tx.laborChange.findUnique({where:{requestId},include:{employee:true}});if(replay){if(replay.employee.companyId!==COMPANY_ID||replay.fingerprint!==fingerprint)throw new InputError("다른 내용에 사용한 요청입니다.");return (replay.next as {id:string}).id;}
+ await assertPeriodsOpen(tx,period);
  const employee=await tx.employee.findFirst({where:{id:employeeId,companyId:COMPANY_ID}});if(!employee)throw new InputError("회사 직원을 선택하세요.");
  const old=await tx.payrollPayment.findUnique({where:{employeeId_period:{employeeId,period}},include:{cashPlan:{include:{settlements:true}}}});const version=revision(d);if((old?.version??0)!==version)throw new InputError("급여 지급 내용이 변경되었습니다. 다시 조회하세요.");
  if(old&&cashSummary(old.cashPlan).actual>0n)throw new InputError("이미 지급 실적이 있는 급여입니다. 은행·실적을 먼저 확인하고 필요하면 최근 지급부터 취소하세요.");

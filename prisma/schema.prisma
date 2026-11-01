@@ -8,6 +8,7 @@ datasource db {
 }
 
 model Company {
+  periodLocks AccountingPeriodLock[]
   bankTransfers BankTransferPair[]
   transferApprovals TransferApproval[]
   attachmentVersion Int @default(0)
@@ -68,6 +69,7 @@ enum ProjectStatus {
 }
 
 model Project {
+  cashPlans CashPlan[]
   stockLocations StockLocation[]
   vehicleAssignments VehicleAssignment[]
   vehicleExpenses VehicleExpense[]
@@ -162,6 +164,13 @@ enum CashCertainty {
 }
 
 model CashPlan {
+  replacedById String?
+  replacedBy CashPlan? @relation("CashPlanReplacement",fields:[replacedById],references:[id],onDelete:Restrict)
+  replacedPlans CashPlan[] @relation("CashPlanReplacement")
+  originalSettlements CashSettlement[] @relation("SettlementOrigin")
+  projectId String?
+  project Project? @relation(fields:[projectId],references:[id],onDelete:Restrict)
+  milestone String?
   tradeDocument TradeDocument?
   payroll PayrollPayment?
   monthlyPayment MonthlyPayment?
@@ -188,6 +197,10 @@ model CashPlan {
 }
 
 model CashSettlement {
+  originPlanId String?
+  originPlan CashPlan? @relation("SettlementOrigin",fields:[originPlanId],references:[id],onDelete:Restrict)
+  tradeBankLinkId String? @unique
+  tradeBankLink TradeBankLink? @relation(fields:[tradeBankLinkId],references:[id],onDelete:SetNull)
   bankTransactionId String?
   bankTransaction BankTransaction? @relation(fields: [bankTransactionId], references: [id], onDelete: Restrict)
   voidedAt DateTime?
@@ -442,6 +455,7 @@ model TradeDocumentChange {
   @@index([documentId, createdAt])
 }
 model TradeBankLink {
+  cashSettlement CashSettlement?
   id String @id @default(cuid())
   documentId String
   document TradeDocument @relation(fields: [documentId], references: [id], onDelete: Restrict)
@@ -1138,4 +1152,17 @@ model BankReconciliation {
  version Int @default(0)
  updatedAt DateTime @updatedAt
  @@unique([accountId,period])
+}
+
+model AccountingPeriodLock {
+ id String @id @default(cuid())
+ companyId String
+ company Company @relation(fields:[companyId],references:[id],onDelete:Restrict)
+ period String
+ locked Boolean @default(true)
+ packageId String
+ digest String
+ version Int @default(0)
+ lockedAt DateTime @default(now())
+ @@unique([companyId,period])
 }

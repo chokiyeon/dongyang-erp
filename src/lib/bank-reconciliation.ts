@@ -1,3 +1,4 @@
+import {assertPeriodsOpen} from "./period-guard";
 import {createHash} from "node:crypto";
 import type {Prisma,PrismaClient} from "@/generated/prisma/client";
 import {COMPANY_ID} from "./constants";
@@ -21,6 +22,7 @@ export async function saveBankReconciliation(tx:Prisma.TransactionClient,d:FormD
  const accountId=text(d,"accountId","통장",true,50),period=paymentMonth(text(d,"period","대조월",true,7)),version=revision(d),basis=text(d,"basis","거래 기준",true,64),requestId=text(d,"requestId","요청",true,50),reason=text(d,"reason","잔액 대조 사유",true,300);
  if(!/^[a-f0-9-]{36}$/i.test(requestId))throw new InputError("통장 잔액 대조 화면을 다시 열어 주세요.");
  const fingerprint=digest(Object.fromEntries([...d.entries()].sort(([a],[b])=>a.localeCompare(b))));const replay=await tx.financeChange.findUnique({where:{requestId}});if(replay){if(replay.companyId!==COMPANY_ID||replay.fingerprint!==fingerprint)throw new InputError("다른 내용으로 사용한 요청입니다.");return replay.entityId;}
+ await assertPeriodsOpen(tx,period);
  if(recurringDue(period,0)>koreanToday())throw new InputError("월말이 지난 기간의 잔액을 대조하세요.");
  const month=await bankReconciliationMonth(tx,COMPANY_ID,period),row=month.rows.find(row=>row.account.id===accountId);if(!row||row.basis!==basis)throw new InputError("은행 거래가 변경되었습니다. 다시 조회하세요.");if((row.record?.version??0)!==version)throw new InputError("잔액 대조 내용이 변경되었습니다.");
  const openingBalance=signedAmount(text(d,"openingBalance","월초 잔액",true,21)),closingBalance=signedAmount(text(d,"closingBalance","은행 월말 잔액",true,21)),sourceReference=text(d,"sourceReference","은행 원본 확인 근거",true,300),confirmed=d.get("confirmed")==="on";
@@ -32,6 +34,7 @@ export async function saveBankReconciliation(tx:Prisma.TransactionClient,d:FormD
 export async function baselineFromReconciliation(tx:Prisma.TransactionClient,d:FormData){
  const period=paymentMonth(text(d,"period","대조월",true,7)),requestId=text(d,"requestId","요청",true,50),reason=text(d,"reason","기준 잔액 반영 사유",true,300),expected=text(d,"basis","대조 기준",true,64),version=revision(d);
  if(!/^[a-f0-9-]{36}$/i.test(requestId))throw new InputError("잔액 대조 화면을 다시 열어 주세요.");const fingerprint=digest({period,reason,expected,version});const replay=await tx.financeChange.findUnique({where:{requestId}});if(replay){if(replay.companyId!==COMPANY_ID||replay.fingerprint!==fingerprint)throw new InputError("다른 내용으로 사용한 요청입니다.");return replay.entityId;}
+ await assertPeriodsOpen(tx,period);
  const month=await bankReconciliationMonth(tx,COMPANY_ID,period);if(!month.ready||month.basis!==expected)throw new InputError("모든 회사 통장의 잔액 대조를 완료하고 다시 조회하세요. 사용 중지 통장도 포함합니다.");if(d.get("confirmed")!=="on")throw new InputError("대출 한도를 더하지 않은 실제 순잔액인지 확인하세요.");
  for(const row of month.rows){const lock=await tx.bankAccount.updateMany({where:{id:row.account.id,companyId:COMPANY_ID,version:row.account.version},data:{version:{increment:1}}});if(lock.count!==1)throw new InputError("통장 또는 은행 거래가 변경되었습니다.");}
  const input=new FormData();input.set("baseDate",recurringDue(period,0));input.set("baseAmount",month.closing.toString());input.set("baseNote",`통장 잔액 대조 합산 ${period}: ${reason}`.slice(0,300));input.set("version",String(version));await saveBaseline(tx,input);

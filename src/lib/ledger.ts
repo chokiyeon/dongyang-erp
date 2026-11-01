@@ -1,3 +1,4 @@
+import {assertPeriodsOpen} from "./period-guard";
 import { createHash, randomUUID } from "node:crypto";
 import type { Prisma } from "@/generated/prisma/client";
 import { COMPANY_ID } from "./constants";
@@ -40,6 +41,7 @@ export async function createBankTransaction(tx: Prisma.TransactionClient, data: 
     if (previous.accountId === accountId && previous.tradedDate.getTime() === values.tradedDate.getTime() && previous.tradedTime === values.tradedTime && previous.amount.toFixed(0) === values.amount && previous.direction === values.direction && previous.description === values.description && (previous.bankBalance?.toFixed(0) ?? null) === values.bankBalance && previous.internalTransfer === values.internalTransfer && previous.accountingCodeId === accountingCodeId && previous.businessType === businessType) return;
     throw new InputError("이미 사용된 요청입니다. 화면을 다시 열어 주세요.");
   }
+  await assertPeriodsOpen(tx,values.tradedDate);
   await tx.bankTransaction.create({ data: { accountId, ...values, requestId, accountingCodeId, businessType } });
 }
 export async function importBankTransactions(tx: Prisma.TransactionClient, data: FormData) {
@@ -70,6 +72,7 @@ export async function importBankTransactions(tx: Prisma.TransactionClient, data:
     if (suspected && data.get("allowSuspected") !== "on") throw new InputError(`${row.sourceRow}행은 기존 거래와 같은 내역이 있습니다. 조회 기간 중복을 확인해 주세요. 서로 다른 실제 거래라면 '중복 의심 내역도 추가'를 선택할 수 있습니다.`);
     records.push({ accountId, ...values, requestId: randomUUID(), importKey, source: "XLSX" });
   }
+  await assertPeriodsOpen(tx,...records.map(r=>r.tradedDate as Date|string));
   if (records.length) await tx.bankTransaction.createMany({ data: records, skipDuplicates: true });
   return records.length;
 }
@@ -97,6 +100,7 @@ export async function reclassifyBankTransaction(tx: Prisma.TransactionClient, da
   if (next.businessType === "internal-transfer" && previous._count.paymentAllocations) throw new InputError("현장 배분을 먼저 해제한 뒤 계좌 간 이체로 변경해 주세요.");
   if (next.businessType === "internal-transfer" && previous._count.tradeLinks) throw new InputError("매입·매출 은행 연결을 먼저 해제한 뒤 계좌 간 이체로 변경해 주세요.");
   if (next.businessType === "internal-transfer" && previous._count.cashSettlements) throw new InputError("입출금 예정의 은행 연결 실적을 먼저 취소한 뒤 계좌 간 이체로 변경해 주세요.");
+  await assertPeriodsOpen(tx,previous.tradedDate);
   const changed = await tx.bankTransaction.updateMany({ where: { id, settlementVersion: previous.settlementVersion, allocationVersion: previous.allocationVersion, classificationVersion: version, account: { companyId: COMPANY_ID } }, data: { ...next, internalTransfer: next.businessType === "internal-transfer" || (next.businessType === null && previous.internalTransfer), classificationVersion: { increment: 1 } } });
   if (changed.count !== 1) throw new InputError("다른 화면에서 분류를 변경했습니다. 목록에서 다시 열어 주세요.");
   await tx.bankClassificationChange.create({ data: { transactionId: id, previousCodeId: previous.accountingCodeId, newCodeId: next.accountingCodeId, previousBusinessType: previous.businessType, newBusinessType: next.businessType, reason } });

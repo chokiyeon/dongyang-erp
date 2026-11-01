@@ -1,3 +1,4 @@
+import {assertPeriodsOpen} from "./period-guard";
 import {createHash} from "node:crypto";
 import type {Prisma} from "@/generated/prisma/client";
 import {COMPANY_ID} from "./constants";
@@ -24,6 +25,7 @@ export async function savePayrollReporting(tx:Prisma.TransactionClient,d:FormDat
  if(!/^[a-f0-9-]{36}$/i.test(requestId))throw new InputError("신고자료 화면을 다시 열어 주세요.");
  const fingerprint=createHash("sha256").update(JSON.stringify(Object.fromEntries([...d.entries()].sort(([a],[b])=>a.localeCompare(b))))).digest("hex");
  const replay=await tx.financeChange.findUnique({where:{requestId}});if(replay){if(replay.companyId!==COMPANY_ID||replay.fingerprint!==fingerprint)throw new InputError("다른 내용으로 사용된 요청입니다.");return replay.entityId;}
+ await assertPeriodsOpen(tx,period);
  const employee=await tx.employee.findFirst({where:{id:employeeId,companyId:COMPANY_ID}});const p=await tx.payrollPayment.findFirst({where:{employeeId,period,voidedAt:null,employee:{companyId:COMPANY_ID}}});
  if(!employee||!p||reportingBasis(p)!==basis)throw new InputError("급여 지급 확인이 변경되었습니다. 다시 조회하세요.");
  const current=await payrollBasis(tx,period,employeeId);if(current.basis!==p.basis)throw new InputError("계약·출역이 변경되었습니다. 급여 지급 확인을 먼저 정정하세요.");

@@ -1,0 +1,13 @@
+import {Suspense} from "react";
+import {platform,totalmem} from "node:os";
+import {requireAdmin} from "@/lib/auth";
+import {requireCompany} from "@/lib/company";
+import {readNasBackupStatus} from "@/lib/nas-backup";
+import {Section} from "@/components/fields";
+import {RecordForm} from "@/components/record-form";
+import {backupNasAction} from "./actions";
+async function Content({searchParams}:{searchParams:Promise<{saved?:string}>}){
+ await requireAdmin();await requireCompany();const q=await searchParams,status=await readNasBackupStatus();const office=process.env.ERP_OFFICE_MODE==="true",configured=Boolean(process.env.ERP_NAS_BACKUP_DIR);
+ return <><h1>실행 장치·NAS 백업</h1><p className="erp-page-description">메인 PC에서 ERP와 데이터베이스를 실행하고 NAS에 별도 백업을 보관합니다. 이 화면의 장치는 현재 ERP가 실행 중인 장치입니다.</p>{q.saved&&<p role="status">NAS 백업을 완료했습니다.</p>}<Section title="현재 실행 환경"><table className="erp-table"><tbody><tr><th>실행 모드</th><td>{office?"사내 메인 PC 모드":"개발·기타 실행 환경 · 회사 PC 연결 전"}</td></tr><tr><th>운영체제</th><td>{platform()==="win32"?"Windows":platform()}</td></tr><tr><th>장치 전체 메모리</th><td>{Math.round(totalmem()/1024**3)}GB</td></tr><tr><th>NAS 백업 폴더</th><td>{configured?"설정됨 · 실제 접근은 백업 시 검증":"미설정"}</td></tr></tbody></table></Section><div className="mt-4"><Section title="최근 백업 상태"><table className="erp-table" data-erp-report-title="NAS 백업 상태"><tbody><tr><th>상태</th><td>{status?({SUCCESS:"검증 완료",FAILED:"실패·확인 필요",RUNNING:"실행 중"}[status.state]):"실행 이력 없음"}</td></tr><tr><th>최근 성공</th><td>{status?.lastSuccessAt?new Date(status.lastSuccessAt).toLocaleString("ko-KR",{timeZone:"Asia/Seoul"}):"없음"}</td></tr><tr><th>확인 내용</th><td>{status?.message??"NAS 경로를 설정하고 시험 백업부터 확인하세요."}</td></tr>{status?.fileName&&<tr><th>완료 파일</th><td>{status.fileName} · {Math.ceil((status.size??0)/1024)}KB</td></tr>}</tbody></table></Section></div><div className="mt-4" data-erp-report-exclude><Section title="퇴근 전 NAS 백업" description="DB에 보관한 장부와 원본 첨부 파일을 함께 백업합니다. 회사 NAS의 다른 자료나 이전 백업을 덮어쓰거나 삭제하지 않습니다.">{configured?<RecordForm action={backupNasAction} label="NAS 백업 실행"><label><input type="checkbox" name="confirmed"/>메인 PC와 NAS 연결, 백업 폴더 권한을 확인했습니다.</label><p className="text-xs">로컬 백업을 먼저 완료하고 NAS로 복사한 뒤 크기와 검증값을 비교합니다. 완료 메시지를 확인한 뒤 메인 PC를 종료하세요.</p></RecordForm>:<p>회사 설치 단계에서 NAS의 ERP 전용 백업 경로를 설정하면 실행 버튼이 나타납니다. 지금 회사 NAS에 접속하거나 기존 자료를 변경한 상태는 아닙니다.</p>}<p className="mt-3 text-sm">백업 성공은 복구 시험 완료와 다릅니다. 실제 운영 전 별도의 빈 DB에서 장부·첨부 복구를 확인합니다. 기존 사용 DB에 덮어쓰는 복원은 제공하지 않습니다.</p></Section></div></>;
+}
+export default function Page(props:{searchParams:Promise<{saved?:string}>}){return <Suspense fallback={<p>실행 장치와 백업 상태를 확인하고 있습니다.</p>}><Content {...props}/></Suspense>;}
