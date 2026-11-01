@@ -41,6 +41,7 @@ model Company {
 }
 
 model BankAccount {
+  reconciliations BankReconciliation[]
   issuedNotes IssuedNote[]
   id            String   @id @default(cuid())
   companyId     String
@@ -161,6 +162,7 @@ enum CashCertainty {
 }
 
 model CashPlan {
+  tradeDocument TradeDocument?
   payroll PayrollPayment?
   monthlyPayment MonthlyPayment?
   receivedNote ReceivedNote?
@@ -202,6 +204,8 @@ model CashSettlement {
 }
 
 model CashBaseline {
+  reconciliationPeriod String?
+  reconciliationBasis String?
   id        String   @id @default(cuid())
   companyId String
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
@@ -386,6 +390,8 @@ enum InputVatReview {
   NONDEDUCTIBLE
 }
 model TradeDocument {
+  cashPlanId String? @unique
+  cashPlan CashPlan? @relation(fields:[cashPlanId],references:[id],onDelete:Restrict)
   stockMovements StockMovement[]
   paymentMethod PaymentMethod @default(UNCONFIRMED)
   companyExpense Boolean @default(false)
@@ -690,6 +696,7 @@ enum LaborRole {
   SIGNAL
 }
 model Employee {
+  reporting PayrollReporting[]
   payeeBank String?
   payeeAccount String?
   payeeHolder String?
@@ -1100,4 +1107,35 @@ model TransferApprovalChange {
  next Json
  reason String
  createdAt DateTime @default(now())
+}
+
+model PayrollReporting {
+ id String @id @default(cuid())
+ employeeId String
+ employee Employee @relation(fields:[employeeId],references:[id],onDelete:Restrict)
+ period String
+ payrollId String
+ basis String
+ declaredWage Decimal @db.Decimal(20,0)
+ declaredDays Decimal @db.Decimal(5,2)
+ employerCosts Json
+ sourceReference String
+ version Int @default(0)
+ updatedAt DateTime @updatedAt
+ @@unique([employeeId,period])
+}
+
+model BankReconciliation {
+ id String @id @default(cuid())
+ accountId String
+ account BankAccount @relation(fields:[accountId],references:[id],onDelete:Restrict)
+ period String
+ openingBalance Decimal @db.Decimal(20,0)
+ closingBalance Decimal @db.Decimal(20,0)
+ basis String
+ confirmed Boolean @default(false)
+ sourceReference String
+ version Int @default(0)
+ updatedAt DateTime @updatedAt
+ @@unique([accountId,period])
 }

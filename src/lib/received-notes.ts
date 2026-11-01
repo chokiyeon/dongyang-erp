@@ -16,7 +16,7 @@ export async function createReceivedNote(tx:Prisma.TransactionClient,data:FormDa
  let planId="";
  if(mode==="EXISTING"){
   const rawVersion=text(data,"planVersion","기존 예정 버전",true,9);if(!/^\d{1,9}$/.test(rawVersion))throw new InputError("기존 입금 예정을 다시 선택하세요.");
-  const plan=await tx.cashPlan.findFirst({where:{id:cashPlanId,companyId:COMPANY_ID},include:{receivedNote:true,issuedNote:true,settlements:{where:{voidedAt:null}}}});
+  const plan=await tx.cashPlan.findFirst({where:{id:cashPlanId,companyId:COMPANY_ID,tradeDocument:null,payroll:null,monthlyPayment:null},include:{receivedNote:true,issuedNote:true,settlements:{where:{voidedAt:null}}}});
   if(!plan||plan.version!==Number(rawVersion)||plan.receivedNote||plan.issuedNote||plan.completedAt||plan.direction!=="IN"||!["공사대금","수취어음"].includes(plan.category)||plan.plannedDate.getTime()!==dueDate.getTime()||plan.plannedAmount.toFixed(0)!==value||plan.settlements.length)throw new InputError("만기일·금액이 같은 미처리 공사대금·수취어음 입금 예정만 연결할 수 있습니다.");
   const changed=await tx.cashPlan.updateMany({where:{id:plan.id,companyId:COMPANY_ID,version:plan.version,completedAt:null},data:{certainty:"ESTIMATED",version:{increment:1}}});if(changed.count!==1)throw new InputError("입금 예정이 변경되었습니다. 다시 조회하세요.");planId=plan.id;
  }else{

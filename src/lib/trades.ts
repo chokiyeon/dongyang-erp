@@ -1,3 +1,4 @@
+import {refreshTradeCashPlan} from "./trade-cash";
 import { createHash } from "node:crypto";
 import type { Prisma } from "@/generated/prisma/client";
 import { COMPANY_ID } from "./constants";
@@ -59,6 +60,7 @@ export async function saveTradeDocument(tx: Prisma.TransactionClient, data: Form
   else { documentId = (await tx.tradeDocument.create({ data: { ...values, companyId: COMPANY_ID } })).id; }
   const snapshot = previous ? JSON.parse(JSON.stringify(previous)) as Prisma.InputJsonValue : {};
   await tx.tradeDocumentChange.create({ data: { documentId, requestId, fingerprint: digest, previous: snapshot, next: JSON.parse(JSON.stringify(values)) as Prisma.InputJsonValue, reason } });
+  await refreshTradeCashPlan(tx,documentId);
   return documentId;
 }
 export async function voidTradeDocument(tx: Prisma.TransactionClient, data: FormData) {
@@ -70,6 +72,7 @@ export async function voidTradeDocument(tx: Prisma.TransactionClient, data: Form
   const changed = await tx.tradeDocument.updateMany({ where: { id, companyId: COMPANY_ID, version, voidedAt: null, settledAmount: 0 }, data: { voidedAt: new Date(), voidReason: reason, version: { increment: 1 } } });
   if (changed.count !== 1) throw new InputError("문서가 변경되었습니다. 다시 조회해 주세요.");
   await tx.tradeDocumentChange.create({ data: { documentId: id, requestId, fingerprint: fingerprint({ id, version, reason, void: true }), previous: { voided: false }, next: { voided: true }, reason } });
+  await refreshTradeCashPlan(tx,id);
   return id;
 }
 export async function linkTradeBank(tx: Prisma.TransactionClient, data: FormData) {
@@ -89,7 +92,7 @@ export async function linkTradeBank(tx: Prisma.TransactionClient, data: FormData
   if (updated.count !== 1) throw new InputError("문서가 변경되었습니다. 다시 조회해 주세요.");
   const bankChanged = await tx.bankTransaction.updateMany({ where: { id: transactionId, settlementVersion: transaction.settlementVersion, classificationVersion: transaction.classificationVersion, internalTransfer: false }, data: { settlementVersion: { increment: 1 } } });
   if (bankChanged.count !== 1) throw new InputError("은행 연결 상태가 변경되었습니다. 다시 조회해 주세요.");
-  await tx.tradeBankLink.create({ data: { documentId, transactionId, amount: value, requestId, fingerprint: digest, note } }); return documentId;
+  await tx.tradeBankLink.create({ data: { documentId, transactionId, amount: value, requestId, fingerprint: digest, note } }); await refreshTradeCashPlan(tx,documentId); return documentId;
 }
 export async function unlinkTradeBank(tx: Prisma.TransactionClient, data: FormData) {
   const id = text(data, "linkId", "연결", true, 50); const version = revision(data); const reason = text(data, "reason", "해제 사유", true, 300);
@@ -100,5 +103,5 @@ export async function unlinkTradeBank(tx: Prisma.TransactionClient, data: FormDa
   const bankChanged = await tx.bankTransaction.updateMany({ where: { id: link.transactionId, settlementVersion: link.transaction.settlementVersion }, data: { settlementVersion: { increment: 1 } } });
   if (bankChanged.count !== 1) throw new InputError("은행 연결 상태가 변경되었습니다. 다시 조회해 주세요.");
   const unlinked = await tx.tradeBankLink.updateMany({ where: { id, voidedAt: null }, data: { voidedAt: new Date(), voidReason: reason } });
-  if (unlinked.count !== 1) throw new InputError("연결이 변경되었습니다. 다시 조회해 주세요."); return link.documentId;
+  if (unlinked.count !== 1) throw new InputError("연결이 변경되었습니다. 다시 조회해 주세요."); await refreshTradeCashPlan(tx,link.documentId); return link.documentId;
 }

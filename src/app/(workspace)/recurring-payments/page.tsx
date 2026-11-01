@@ -23,7 +23,7 @@ async function Content({searchParams}:{searchParams:Promise<Query>}){
  ]);if(q.edit&&!record||q.confirm&&!selected)notFound();
  const [invoices,plans]=selected?await Promise.all([
   db.tradeDocument.findMany({where:{companyId:company.id,kind:"PURCHASE",voidedAt:null,partnerId:selected.partnerId,projectId:selected.projectId,companyExpense:selected.companyExpense,paymentMethod:"BANK_TRANSFER",dueDate:{not:null},OR:[{monthlyPayment:{is:null}},{monthlyPayment:{id:selected.id}}]},orderBy:{issuedDate:"desc"}}),
-  db.cashPlan.findMany({where:{companyId:company.id,direction:"OUT",payroll:null,completedAt:null,category:{not:"어음결제"},issuedNote:{is:null},receivedNote:{is:null},settlements:{none:{voidedAt:null}},OR:[{monthlyPayment:{is:null}},{monthlyPayment:{id:selected.id}}]},orderBy:{plannedDate:"asc"}}),
+  db.cashPlan.findMany({where:{companyId:company.id,tradeDocument:null,direction:"OUT",payroll:null,completedAt:null,category:{not:"어음결제"},issuedNote:{is:null},receivedNote:{is:null},settlements:{none:{voidedAt:null}},OR:[{monthlyPayment:{is:null}},{monthlyPayment:{id:selected.id}}]},orderBy:{plannedDate:"asc"}}),
  ]):[[],[]];
  const readOnly=selected&&(selected.voidedAt||selected.cashPlan&&(selected.cashPlan.completedAt||selected.cashPlan.settlements.some(s=>!s.voidedAt))||selected.document&&selected.document.settledAmount.toFixed(0)!=="0");
  return <><h1>월세·공과금 정기 지급</h1><p className="erp-page-description">현장 숙소 월세·전기요금 등 반복되는 거래처·현장을 저장하고 지급월별 금액을 확인합니다. 매달 달라지는 요금은 기본액을 비워 두고 고지서 확인 후 입력하세요.</p>{q.saved&&<p role="status">{q.saved==="template"?"정기 지급 기준을 저장했습니다.":q.saved==="generate"?`지급월 준비 내역 ${Number(q.count)||0}건을 생성했습니다. 기존 내역은 유지했습니다.`:q.saved==="void"?"월별 준비 내역을 취소했습니다.":"이번 달 지급 내역을 확인했습니다."}</p>}

@@ -20,7 +20,7 @@ async function Content({searchParams}:{searchParams:Promise<Query>}){
   const where:Prisma.IssuedNoteWhereInput={companyId:company.id,dueDate,...(p.status&&Object.keys(ISSUED_NOTE_STATUSES).includes(p.status)?{status:p.status as keyof typeof ISSUED_NOTE_STATUSES}:{}),...(q?{OR:[{reference:{contains:q,mode:"insensitive"}},{partner:{name:{contains:q,mode:"insensitive"}}}]}:{}),...(error?{id:"invalid-filter"}:{})};
   const [count,groups,partners,projects,accounts,plans,selected]=await Promise.all([
     db.issuedNote.count({where}),db.issuedNote.groupBy({by:["status"],where,_sum:{amount:true}}),db.partner.findMany({where:{companyId:company.id,active:true,type:{in:["SUPPLIER","BOTH"]}},orderBy:{name:"asc"}}),db.project.findMany({where:{companyId:company.id,active:true},orderBy:{code:"asc"}}),db.bankAccount.findMany({where:{companyId:company.id,active:true},orderBy:[{bankName:"asc"},{label:"asc"}]}),
-    db.cashPlan.findMany({where:{companyId:company.id,direction:"OUT",category:"어음결제",completedAt:null,issuedNote:{is:null},settlements:{none:{voidedAt:null}}},orderBy:{plannedDate:"asc"}}),
+    db.cashPlan.findMany({where:{companyId:company.id,tradeDocument:null,direction:"OUT",category:"어음결제",completedAt:null,issuedNote:{is:null},settlements:{none:{voidedAt:null}}},orderBy:{plannedDate:"asc"}}),
     p.view?db.issuedNote.findFirst({where:{id:p.view,companyId:company.id},include:{partner:true,project:true,account:true,cashPlan:true,changes:{orderBy:[{createdAt:"desc"},{id:"desc"}],take:15}}}):null,
   ]);if(p.view&&!selected)notFound();
   const pageCount=Math.max(1,Math.ceil(count/50));const parsed=Number(p.page);const page=Math.min(pageCount,Number.isSafeInteger(parsed)&&parsed>0?parsed:1);

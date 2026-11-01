@@ -26,6 +26,7 @@ test("로그인·회사·거래처·현장·계좌 등록과 수정", async ({ p
     await expect(page.locator("p[role=alert]")).toHaveText("비밀번호를 확인해 주세요.");
     await page.getByLabel("관리자 비밀번호").fill(password);
     await page.getByRole("button", { name: "로그인", exact: true }).click();
+    await expect(page).not.toHaveURL(/\/login$/);
     if (!companyExisted) {
       await expect(page).toHaveURL(/\/settings$/);
       await page.getByLabel("법인명").fill(`검증 법인 ${tag}`);

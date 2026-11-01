@@ -35,7 +35,7 @@ export async function confirmMonthlyPayment(tx:Prisma.TransactionClient,d:FormDa
   const doc=await tx.tradeDocument.findFirst({where:{id:documentId,companyId:COMPANY_ID,kind:"PURCHASE",voidedAt:null},include:{monthlyPayment:true}});
   if(!doc||doc.partnerId!==row.partnerId||doc.projectId!==row.projectId||doc.companyExpense!==row.companyExpense||doc.grossAmount.toFixed(0)!==value||!doc.dueDate||doc.dueDate.getTime()!==dueDate.getTime()||doc.paymentMethod!=="BANK_TRANSFER"||(doc.monthlyPayment&&doc.monthlyPayment.id!==row.id))throw new InputError("같은 거래처·현장·금액의 계좌 송금 매입 문서만 연결하세요. 이미 연결된 문서는 제외됩니다.");sourceDoc=doc.id;
  }else if(mode==="EXISTING_PLAN"){
-  const plan=await tx.cashPlan.findFirst({where:{id:planId,companyId:COMPANY_ID,payroll:null},include:{issuedNote:true,receivedNote:true,monthlyPayment:true,settlements:{where:{voidedAt:null}}}});
+  const plan=await tx.cashPlan.findFirst({where:{id:planId,companyId:COMPANY_ID,payroll:null,tradeDocument:null},include:{issuedNote:true,receivedNote:true,monthlyPayment:true,settlements:{where:{voidedAt:null}}}});
   if(!plan||plan.direction!=="OUT"||plan.completedAt||plan.issuedNote||plan.receivedNote||plan.category==="어음결제"||plan.settlements.length||plan.plannedAmount.toFixed(0)!==value||plan.plannedDate.getTime()!==dueDate.getTime()||(plan.monthlyPayment&&plan.monthlyPayment.id!==row.id))throw new InputError("금액·지급기한이 같은 미처리 지출 예정만 연결하세요. 어음·이미 연결된 예정은 제외됩니다.");
   const changed=await tx.cashPlan.updateMany({where:{id:plan.id,companyId:COMPANY_ID,version:plan.version,completedAt:null},data:{version:{increment:1}}});if(changed.count!==1)throw new InputError("연결할 지출 예정이 변경되었습니다.");sourcePlan=plan.id;
  }else{
