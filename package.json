@@ -22,7 +22,11 @@
     "db:backup": "node --env-file-if-exists=.env scripts/database-transfer.mjs backup",
     "db:restore": "node --env-file-if-exists=.env scripts/database-transfer.mjs restore",
     "db:check-backup": "node scripts/check-backup.mjs",
-    "start:office": "node --env-file=.env.office scripts/start-office.mjs"
+    "start:office": "node --env-file=.env.office scripts/start-office.mjs",
+    "office:prepare": "node --env-file=.env.office scripts/prepare-office.mjs",
+    "build:office": "node --env-file=.env.office node_modules/next/dist/bin/next build",
+    "office:backup": "node --env-file=.env.office scripts/database-transfer.mjs backup",
+    "office:restore": "node --env-file=.env.office scripts/database-transfer.mjs restore"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.2.0",

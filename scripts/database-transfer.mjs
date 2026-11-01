@@ -1,5 +1,5 @@
 import { openSync, closeSync, mkdirSync, chmodSync, existsSync, statSync, unlinkSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve,join,isAbsolute } from "node:path";
 import { spawnSync } from "node:child_process";
 import pg from "pg";
 // No connection strings or tool stderr (which can contain credentials) are logged.
@@ -14,7 +14,7 @@ function connection(value) {
 }
 function postgresTool(name, args, env, stdio) {
   const container = process.env.ERP_PG_TOOLS_CONTAINER;
-  if (!container) return spawnSync(name, args, { env, stdio });
+  if (!container) { const directory=env.ERP_PG_BIN_DIR; if(directory&&!isAbsolute(directory))throw new Error(); const executable=directory?join(directory,process.platform==="win32"?`${name}.exe`:name):name; return spawnSync(executable,args,{env,stdio}); }
   if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/.test(container)) throw new Error();
   const dockerEnv = { ...env };
   for (const key of ["DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"]) delete dockerEnv[key];
