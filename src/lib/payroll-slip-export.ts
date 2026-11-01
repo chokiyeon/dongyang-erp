@@ -5,9 +5,9 @@ export async function payrollSlipWorkbook(d:PayrollSlipData){
  const book=new ExcelJS.Workbook();book.creator="동양 ERP";const sheet=book.addWorksheet("임금명세서");sheet.columns=[{width:27},{width:23},{width:27},{width:23}];
  const money=(value:string|null)=>value===null?"미확인":payrollExcelMoney(value);
  sheet.mergeCells("A1:D1");sheet.getCell("A1").value=`${d.period} 임 금 명 세 서`;sheet.getRow(1).height=36;
- sheet.addRow(["귀속월",d.period,"급여 구분",`${d.kind} · 검토용`]);sheet.addRow(["성명",d.employee,"지급예정일",d.dueDate]);sheet.addRow(["직원 코드",d.code,"수취계좌",d.account]);sheet.addRow(d.daily?["산정 기간",`${d.period} 1일~말일`,"계산 기준","일당 × 일수 − 공제합계"]:["일수·공수",d.units,"단가 (시급·일당)",d.rate]);sheet.addRow([d.daily?"지급 항목":"지급·수당 항목",d.daily?"일당·일수":"금액","공제 항목","금액"]);
+ sheet.addRow(["귀속월",d.period,"급여 구분",`${d.kind} · 검토용`]);sheet.addRow(["성명",d.employee,"지급예정일",d.dueDate]);sheet.addRow(["직원 코드",d.code,"수취계좌",d.account]);sheet.addRow(d.daily?["산정 기간",`${d.period} 1일~말일`,"계산 기준","확인 일당 × 공수 − 공제합계"]:["일수·공수",d.units,"단가 (시급·일당)",d.rate]);sheet.addRow([d.daily?"지급 항목":"지급·수당 항목",d.daily?"공수·일수":"금액","공제 항목","금액"]);
  for(let i=0;i<Math.max(d.earnings.length,d.deductions.length);i++){const e=d.earnings[i],c=d.deductions[i];sheet.addRow([e?.label??"",e?(e.display??money(e.amount)):null,c?.label??"",c?money(c.amount):null]);}
- sheet.addRow([d.daily?"지급총액 (일당 × 일수)":"지급항목 합계",money(d.earningTotal),d.daily?"공제합계":"공제합계 (근태 포함)",money(d.deductionTotal)]);
+ sheet.addRow([d.daily?"실지급 기준 계산액 (공제 전)":"지급항목 합계",money(d.earningTotal),d.daily?"공제합계":"공제합계 (근태 포함)",money(d.deductionTotal)]);
  sheet.addRow(d.daily?["실지급액 산식","지급총액 − 공제합계",d.dailyCalculationConfirmed?"실지급액":"기존 확인액 (공제 확인 필요)",money(d.net)]:["연말정산 조정 (+환급 / -추가공제)",money(d.adjustment),"실수령액",money(d.net)]);const netRow=sheet.rowCount;
  sheet.addRow(["실제 지급액",money(d.actual),"남은 지급액",money(d.remaining)]);
  const footer=(value:string,height=30)=>{const row=sheet.addRow([value]);sheet.mergeCells(row.number,1,row.number,4);row.height=height;};

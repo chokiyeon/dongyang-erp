@@ -13,3 +13,5 @@ export function calculateDailyPay(groups:DailyPayDetails["groups"],values:Record
  if(gross>limit||deducted>limit)throw new InputError("급여 합계가 저장 범위를 초과합니다.");if(deducted>gross)throw new InputError("공제합계가 지급총액을 초과합니다.");return{gross,deducted,net:gross-deducted,details:{version:1 as const,groups,deductions}};
 }
 export function readDailyPayDetails(snapshot:unknown):DailyPayDetails|null{if(!snapshot||typeof snapshot!=="object"||!("dailyDetails"in snapshot))return null;const d=snapshot.dailyDetails as Partial<DailyPayDetails>|null;if(!d||d.version!==1||!Array.isArray(d.groups)||!d.deductions)return null;try{for(const r of d.groups)if(!r||typeof r.key!=="string"||typeof r.units!=="string"||typeof r.grossRate!=="string")return null;return calculateDailyPay(d.groups,d.deductions).details;}catch{return null;}}
+
+export function dailyAttendanceSummary(lines:{date:string;units:string}[]){const count=lines.reduce((sum,row)=>sum+units(row.units),0n);return{units:`${count/100n}.${(count%100n).toString().padStart(2,"0")}`,days:new Set(lines.map(row=>row.date.slice(0,10))).size};}
