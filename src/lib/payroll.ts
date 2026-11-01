@@ -1,3 +1,4 @@
+import {DAILY_DEDUCTIONS,dailyRateGroups,calculateDailyPay,readDailyPayDetails} from "./daily-payroll-details";
 import {MONTHLY_PAY_FIELDS,calculateMonthlyPay,readMonthlyPayDetails} from "./monthly-payroll-details";
 import {invalidateSourceCosts} from "./source-cost-invalidation";
 import {createHash} from "node:crypto";
@@ -33,6 +34,14 @@ export async function savePayroll(tx:Prisma.TransactionClient,op:"confirm"|"void
    const calculation=calculateMonthlyPay(Object.fromEntries(MONTHLY_PAY_FIELDS.map(([key])=>[key,text(d,`monthly_${key}`,key,true,21)])));
    if(calculation.net!==BigInt(netAmount))throw new InputError("세부 내역의 계산 실수령액과 최종 실지급액이 다릅니다.");
    snapshot={...base.basisData,monthlyDetails:calculation.details};
+  }
+  if(readDailyPayDetails(old?.snapshot)&&d.get("useDailyDetails")!=="on")throw new InputError("기존 일용직 공제 전 일당·공제 내역을 켜고 정정하세요.");
+  if(d.get("useDailyDetails")==="on"){
+   if(!base.daily||d.get("dailyGrossConfirmed")!=="on")throw new InputError("일용직 공제 전 일당과 공제 내역을 확인하세요.");
+   const groups=dailyRateGroups(base.daily.lines.map(row=>({role:row.role,units:row.units.toFixed(2),rate:row.rateAmount.toFixed(0)})));
+   const calculation=calculateDailyPay(groups.map((row,index)=>({...row,grossRate:text(d,`dailyGrossRate_${index}`,"공제 전 일당",true,20)})),Object.fromEntries(DAILY_DEDUCTIONS.map(([key])=>[key,text(d,`dailyDeduction_${key}`,key,true,20)])));
+   if(calculation.net!==BigInt(netAmount))throw new InputError("일당 × 일수 − 공제합계와 최종 실지급액이 다릅니다.");
+   snapshot={...base.basisData,dailyDetails:calculation.details};
   }
   values={netAmount,dueDate,basis:base.basis,snapshot,adjustmentReason};
  }

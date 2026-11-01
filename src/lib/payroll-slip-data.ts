@@ -1,3 +1,4 @@
+import {DAILY_DEDUCTIONS,readDailyPayDetails,calculateDailyPay,dailyRateGroups} from "./daily-payroll-details";
 import type {PrismaClient} from "@/generated/prisma/client";
 import type {PayrollSlipData} from "@/components/payroll-slip";
 import {laborUnits} from "./labor-types";
@@ -11,13 +12,24 @@ export async function loadPayrollSlip(db:PrismaClient,company:{id:string;name:st
  const employee=payment.employee;
  const monthly=statement.monthly;const daily=employee.kind==="DAILY";
  const earnings:PayrollSlipData["earnings"]=MONTHLY_PAY_FIELDS.filter(([, ,group])=>group==="earnings").map(([key,label])=>({label,amount:monthly?.details.amounts[key]??null}));
- if(daily)earnings.unshift({label:"실지급 기준 계산액 (출역 합산)",amount:statement.lines.length?statement.calculatedDaily.toString():null});
+
  const order:string[]=["incomeTax","localTax","employment","pension","health","care","advance","late","absence"];
  const deductions:PayrollSlipData["deductions"]=MONTHLY_PAY_FIELDS.filter(([, ,group])=>group==="deductions"||group==="attendance").sort(([a],[b])=>order.indexOf(a)-order.indexOf(b)).map(([key,label])=>({label,amount:monthly?.details.amounts[key]??null}));
- if(daily)deductions.push({label:"노조 조합비",amount:null});
+
  const unitTotal=statement.lines.reduce((sum,row)=>sum+laborUnits(row.units),0n);const rateLabels=[...new Set(statement.lines.map(row=>`${row.role==="SIGNAL"?"신호수":"일반"} ${won(BigInt(row.rate))}`))];
- const breakdown=new Map<string,{role:string;rate:string;units:bigint;amount:bigint}>();for(const row of statement.lines){const key=`${row.role}:${row.rate}`;const group=breakdown.get(key)??{role:row.role==="SIGNAL"?"신호수":"일반",rate:row.rate,units:0n,amount:0n};group.units+=laborUnits(row.units);group.amount+=BigInt(row.amount);breakdown.set(key,group);}
- const dailyMethod=[...breakdown.values()].map(row=>`${row.role} ${row.units/100n}.${(row.units%100n).toString().padStart(2,"0")}공수 × ${won(BigInt(row.rate))} = ${won(row.amount)}`).join(" / ");
- const slip:PayrollSlipData={period:payment.period,company:company.name,employee:employee.name,code:employee.code,kind:daily?"일용직":"상용직",dueDate:payment.dueDate.toISOString().slice(0,10),account:`${employee.payeeBank??"은행 미등록"} ${maskPayeeAccount(employee.payeeAccount)}`,review:issues,earnings,deductions,earningTotal:monthly?.earnings.toString()??(statement.lines.length?statement.calculatedDaily.toString():null),deductionTotal:monthly?(monthly.attendance+monthly.deductions).toString():null,adjustment:monthly?.adjustment.toString()??null,net:payment.netAmount.toFixed(0),actual:summary.actual.toString(),remaining:summary.remaining.toString(),reason:payment.adjustmentReason??"등록된 조정 근거 없음",daily,units:daily&&statement.lines.length?`${unitTotal/100n}.${(unitTotal%100n).toString().padStart(2,"0")} 공수`:"미입력",rate:daily&&rateLabels.length?rateLabels.join(" / "):"미입력",method:monthly?"실수령액 = 지급항목 합계 − 근태·제세 공제합계 + 연말정산 조정액. 저장한 원 단위 금액을 적용합니다.":`${dailyMethod||"저장 당시 공수 × 실지급 일당"}. 실지급 기준이며 공제를 재차감하지 않습니다. 확인 지급액과 차이가 있으면 조정 근거를 대조합니다.`};
+ const detail=daily?readDailyPayDetails(payment.snapshot):null;
+ const sourceGroups=dailyRateGroups(statement.lines);
+ const validGroups=detail&&detail.groups.length===sourceGroups.length&&sourceGroups.every(row=>detail.groups.some(g=>g.key===row.key&&g.units===row.units));
+ const dailyCalculation=detail&&validGroups?calculateDailyPay(detail.groups,detail.deductions):null;
+ if(daily&&!dailyCalculation)issues.push("공제 전 일당·일수와 공제 내역을 확인해야 합니다. 기존 실지급 기준 일당에서 공제를 다시 빼지 않습니다.");
+ if(dailyCalculation&&dailyCalculation.net!==BigInt(payment.netAmount.toFixed(0)))issues.push("일당 × 일수 − 공제합계와 확인 실지급액이 다릅니다.");
+ if(daily){
+  earnings.length=0;deductions.length=0;
+  const groups=dailyCalculation?.details.groups??[];
+  earnings.push({label:"일당",amount:groups.length===1?groups[0].grossRate:null,display:groups.length>1?groups.map(g=>`${g.role==="SIGNAL"?"신호수":"일반"} ${won(BigInt(g.grossRate))}`).join(" / "):undefined});
+  earnings.push({label:"일수",amount:null,display:groups.length?groups.map(g=>`${groups.length>1?(g.role==="SIGNAL"?"신호수 ":"일반 "):""}${g.units}일`).join(" / "):"미확인"});
+  for(const[key,label]of DAILY_DEDUCTIONS)deductions.push({label,amount:dailyCalculation?.details.deductions[key]??null});
+ }
+ const slip:PayrollSlipData={period:payment.period,company:company.name,employee:employee.name,code:employee.code,kind:daily?"일용직":"상용직",dueDate:payment.dueDate.toISOString().slice(0,10),account:`${employee.payeeBank??"은행 미등록"} ${maskPayeeAccount(employee.payeeAccount)}`,review:issues,earnings,deductions,earningTotal:monthly?.earnings.toString()??dailyCalculation?.gross.toString()??null,deductionTotal:monthly?(monthly.attendance+monthly.deductions).toString():dailyCalculation?.deducted.toString()??null,adjustment:monthly?.adjustment.toString()??null,net:payment.netAmount.toFixed(0),actual:summary.actual.toString(),remaining:summary.remaining.toString(),reason:payment.adjustmentReason??"등록된 조정 근거 없음",daily,dailyCalculationConfirmed:Boolean(dailyCalculation),units:daily&&statement.lines.length?`${unitTotal/100n}.${(unitTotal%100n).toString().padStart(2,"0")} 공수`:"미입력",rate:daily&&rateLabels.length?rateLabels.join(" / "):"미입력",method:monthly?"실수령액 = 지급항목 합계 − 근태·제세 공제합계 + 연말정산 조정액. 저장한 원 단위 금액을 적용합니다.":dailyCalculation?`지급총액 = 공제 전 일당 × 일수. 실지급액 = 지급총액 − 공제합계. ${dailyCalculation.details.groups.map(g=>`${g.role==="SIGNAL"?"신호수":"일반"} ${won(BigInt(g.grossRate))} × ${g.units}일`).join(" / ")}`:"공제 전 일당과 공제 내역 확인 전입니다. 기존 실지급 기준 출역에서 공제를 자동 재차감하지 않습니다."};
  return{payment,statement,issues,slip,projects};
 }

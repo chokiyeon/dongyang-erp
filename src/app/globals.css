@@ -258,3 +258,4 @@ a:focus-visible { outline: 3px solid #2563eb; outline-offset: 4px; }
 .payroll-slip-sign { background: #d5d0ff; text-align: center; margin-top: 12px; padding: 6px; font-size: 13px; line-height: 1.6; }
 .payroll-slip-sign strong { font-size: 19px; letter-spacing: 3px; }
 @media print { .payroll-slip-paper td, .payroll-slip-sign, .payroll-slip-net, .payroll-slip-heading { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
+.payroll-slip-paper .payroll-slip-amounts td.payroll-slip-expression { white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
