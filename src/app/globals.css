@@ -212,3 +212,49 @@ a:focus-visible { outline: 3px solid #2563eb; outline-offset: 4px; }
 .monthly-original-register td:nth-child(21) { min-width: 220px; }
 .daily-original-register td:nth-child(3) { min-width: 170px; }
 .payroll-original-notes p { padding: 4px 7px; font-size: 10px; }
+.payroll-slip-paper { box-sizing: border-box; width: 100%; max-width: 186mm; margin: 0 auto; padding: 22px 26px; background: white; border: 1px solid #bac6d2; color: #24364b; font: 12px/1.45 'Malgun Gothic', system-ui; }
+.payroll-slip-heading { position: relative; text-align: center; border-bottom: 2px solid #244767; padding-bottom: 12px; }
+.payroll-slip-heading p { font-size: 13px; margin: 0 0 3px; }
+.payroll-slip-heading h2 { font-size: 24px; font-weight: 700; letter-spacing: 2px; margin: 0; }
+.payroll-slip-heading > span { position: absolute; right: 0; top: 0; color: #7e6334; border: 1px solid #c3ad84; padding: 2px 7px; font-size: 10px; }
+.payroll-slip-company { text-align: center; font-size: 13px; font-weight: 600; margin: 9px 0 12px; }
+.payroll-slip-paper table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 11px; }
+.erp-workspace .payroll-slip-paper th, .erp-workspace .payroll-slip-paper td, .payroll-slip-paper th, .payroll-slip-paper td { border: 1px solid #bcc9d5; padding: 5px 7px; vertical-align: middle; overflow-wrap: anywhere; }
+.payroll-slip-meta { margin-bottom: 14px; }
+.payroll-slip-meta td:nth-child(odd) { width: 17%; background: #edf2f6; font-weight: 600; }
+.payroll-slip-amounts th { background: #e4edf4; text-align: center; }
+.payroll-slip-value { width: 23%; }
+.payroll-slip-amounts td:nth-child(even) { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.payroll-slip-totals { background: #eef3f7; font-weight: 700; }
+.payroll-slip-net { margin: 14px 0 12px; border: 1px solid #9ab5cc; background: #eaf2f8; padding: 10px 14px; }
+.payroll-slip-net > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 14px; }
+.payroll-slip-net strong { font-size: 24px; }
+.payroll-slip-net p { text-align: right; font-size: 11px; margin-top: 4px; }
+.payroll-slip-settlement { text-align: center; }
+.payroll-slip-foot { margin-top: 12px; font-size: 10px; line-height: 1.6; }
+.payroll-slip-foot p { margin: 4px 0; }
+.payroll-slip-warning { border: 1px solid #d5b66d; padding: 6px 8px; font-size: 10px; background: #fff8e8; margin-bottom: 10px; }
+.payroll-slip-dialog { width: min(810px, 96vw); max-height: 94vh; margin: auto; padding: 0; border: 1px solid #a3b5c6; background: #e9eef3; }
+.payroll-slip-dialog::backdrop { background: #172c4380; }
+.payroll-slip-controls { display: flex; align-items: center; justify-content: space-between; gap: 10px; position: sticky; top: 0; background: white; padding: 10px 14px; z-index: 2; }
+.payroll-slip-controls > div { display: flex; gap: 8px; }
+@media (max-width: 640px) { .payroll-slip-paper { padding: 12px; } .payroll-slip-heading h2 { font-size: 20px; } .payroll-slip-paper td, .payroll-slip-paper th { font-size: 10px; padding: 4px; } .payroll-slip-net strong { font-size: 20px; } }
+@media print {
+ @page payrollSlip { size: A4 portrait; margin: 12mm; }
+ body:has(.payroll-slip-dialog[open]) .erp-shell { display: none !important; }
+ .payroll-slip-dialog[open] { position: static !important; display: block !important; width: 100% !important; max-width: none !important; max-height: none !important; margin: 0 !important; padding: 0 !important; border: 0 !important; overflow: visible !important; background: white; }
+ .payroll-slip-controls { display: none !important; }
+ .payroll-slip-paper { page: payrollSlip; width: 100%; max-width: none; border: 0; padding: 0; break-inside: avoid; font-size: 12px; }
+ .payroll-slip-paper th { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+ .payroll-slip-paper .sr-only { display: none; }
+}
+/* Uploaded wage-statement reference: yellow labels, peach values, one employee. */
+.payroll-slip-heading { background: #fce4d6; border: 1px solid #6d6259; padding: 13px 8px; }
+.payroll-slip-amounts th, .payroll-slip-amounts td:nth-child(odd) { background: #ffe699; color: #222; }
+.payroll-slip-amounts td:nth-child(even) { background: #fbe5d6; color: #222; }
+.payroll-slip-meta td:nth-child(odd) { background: #ffe699; }
+.payroll-slip-totals td { font-weight: 700; }
+.payroll-slip-net { background: #fbe5d6; border: 1px solid #7c7169; }
+.payroll-slip-sign { background: #d5d0ff; text-align: center; margin-top: 12px; padding: 6px; font-size: 13px; line-height: 1.6; }
+.payroll-slip-sign strong { font-size: 19px; letter-spacing: 3px; }
+@media print { .payroll-slip-paper td, .payroll-slip-sign, .payroll-slip-net, .payroll-slip-heading { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }

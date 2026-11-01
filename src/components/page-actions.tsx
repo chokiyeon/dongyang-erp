@@ -74,6 +74,8 @@ export function PageActions({ companyName }: { companyName: string }) {
   }, [report]);
   useEffect(() => { dialog.current?.close(); }, [pathname]);
   function preview(print = false) {
+    const custom=Array.from(document.querySelectorAll<HTMLButtonElement>(".erp-workspace [data-payroll-slip-preview-button]")).find(visible);
+    if(custom&&!custom.disabled){custom.dataset.printRequested=String(print);custom.click();return;}
     const captured = captureReport(companyName);
     if (!captured.tables.length) { setNotice("미리보기할 자료가 없습니다."); return; }
     flushSync(() => { setReport(captured); setNotice(""); });
@@ -89,6 +91,7 @@ export function PageActions({ companyName }: { companyName: string }) {
     form.requestSubmit();
   }
   async function exportExcel() {
+    const custom=Array.from(document.querySelectorAll<HTMLAnchorElement>(".erp-workspace [data-payroll-slip-excel]")).find(visible);if(custom){custom.click();return;}
     const captured = captureReport(companyName);
     if (!captured.tables.length) { setNotice("엑셀로 저장할 자료가 없습니다."); return; }
     setExporting(true); setNotice("");
