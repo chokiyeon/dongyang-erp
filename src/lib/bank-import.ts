@@ -17,6 +17,17 @@ function value(cell: CellValue): string | number | Date {
   if (typeof cell === "object" && "text" in cell) return String(cell.text);
   return "";
 }
+export function spreadsheetCellIssue(cell:CellValue):string|null {
+  if(typeof cell==="boolean")return "원본 셀에 숫자·날짜 대신 참/거짓 값이 있습니다. 원본을 확인해 주세요.";
+  if(cell&&typeof cell==="object"){
+    if("error" in cell)return "원본 엑셀 셀에 계산 오류가 있습니다. 원본을 확인해 주세요.";
+    if("formula" in cell||"sharedFormula" in cell){
+      if(!("result" in cell)||cell.result===undefined||cell.result===null)return "원본 수식 결과가 없습니다. 엑셀에서 재계산 후 저장한 사본으로 다시 검토하세요.";
+      return spreadsheetCellIssue(cell.result as CellValue);
+    }
+  }
+  return null;
+}
 function money(raw: string | number | Date, optional = false): string | null {
   if (raw instanceof Date) throw new Error("금액 셀의 형식을 확인해 주세요.");
   if (typeof raw === "number" && !Number.isSafeInteger(raw)) throw new Error("금액이 소수이거나 정밀도를 확인할 수 없습니다. 원 단위 정수·텍스트로 확인해 주세요.");
@@ -55,9 +66,10 @@ export function parseBankWorkbook(workbook: Workbook): ImportRow[] {
   for (let index = headerRow + 1; index <= sheet.rowCount; index++) {
     const row = sheet.getRow(index);
     const read = (key: keyof typeof aliases) => columns[key] ? value(row.getCell(columns[key]!).value) : "";
-    if ([read("date"), read("incoming"), read("outgoing"), read("description")].every((v) => v === "")) continue;
     if (/^(합계|총계)$/.test(String(read("date")).trim())) continue;
     try {
+      for(const column of Object.values(columns)){const issue=spreadsheetCellIssue(row.getCell(column!).value);if(issue)throw new Error(issue);}
+      if ([read("date"),read("incoming"),read("outgoing"),read("description")].every(v=>v===""))continue;
       const incoming = BigInt(money(read("incoming"))!);
       const outgoing = BigInt(money(read("outgoing"))!);
       if (incoming === 0n && outgoing === 0n) continue;

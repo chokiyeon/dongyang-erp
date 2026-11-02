@@ -211,6 +211,7 @@ test("로그인·회사·거래처·현장·계좌 등록과 수정", async ({ p
     await page.getByLabel("기존 장부 파일").setInputFiles({ name: "기존장부.xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: Buffer.from(new Uint8Array(await oldbook.xlsx.writeBuffer())) });
     await expect(page.getByRole("row").filter({ hasText: `LG-${tag} 이전 장부 출금` })).toContainText("104 본(경비)");
     await expect(page.getByRole("row").filter({ hasText: "날짜 확인 필요" })).toContainText("앞 행");
+    const reviewDownload=page.waitForEvent("download");await page.getByRole("button",{name:"검토 결과 엑셀 저장",exact:true}).click();const reviewFile=await reviewDownload;expect(reviewFile.suggestedFilename()).toMatch(/^기존장부_검토_2026_/);const reviewBook=new ExcelJS.Workbook();await reviewBook.xlsx.readFile((await reviewFile.path())!);expect(reviewBook.getWorksheet("확인 필요 행")!.rowCount).toBe(3);expect(reviewBook.getWorksheet("가져오기 후보 전체")!.rowCount).toBe(3);expect(reviewBook.getWorksheet("확인 필요 행")!.getCell("I2").text).toContain("거래일이 비어");
     await page.getByRole("combobox", { name: "원장 전북 연결 계좌", exact: true }).selectOption({ label: `전북은행 · ${accountName}` });
     await page.getByRole("combobox", { name: "원장 하나 연결 계좌", exact: true }).selectOption({ label: `하나은행 · LB-${tag}-1` });
     await page.getByRole("button", { name: "현재 페이지 전체 선택", exact: true }).click();

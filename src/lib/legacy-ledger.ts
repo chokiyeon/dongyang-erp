@@ -1,8 +1,8 @@
-import type { Workbook } from "exceljs";
-import { spreadsheetDate, spreadsheetMoney, spreadsheetValue } from "./bank-import";
+import type { Workbook,Cell } from "exceljs";
+import { spreadsheetDate, spreadsheetMoney, spreadsheetValue, spreadsheetCellIssue } from "./bank-import";
 
 export type LegacyLedgerRow = { sourceRow: number; date: string; bankLabel: string; description: string; legacyCategory: string; incomingType: "LOAN" | "GENERAL" | "NONE"; direction: "IN" | "OUT"; amount: string; ledgerBalance: string | null };
-export type LegacyIssue = { sourceRow: number; reason: string; description: string; bankLabel: string; legacyCategory: string };
+export type LegacyIssue = { sourceRow: number; reason: string; description: string; bankLabel: string; legacyCategory: string; rawDate?:string; rawLoan?:string; rawIncoming?:string; rawOutgoing?:string };
 export type LegacyReview = { sheetName: string; rows: LegacyLedgerRow[]; issues: LegacyIssue[]; ignored: { opening: number; summaries: number; noAmount: number }; incoming: string; outgoing: string };
 export function legacyBankName(label: string): string | null {
   const cleaned = label.replace(/\s/g, "");
@@ -10,6 +10,7 @@ export function legacyBankName(label: string): string | null {
   return entries.find(([pattern]) => pattern.test(cleaned))?.[1] ?? null;
 }
 const clean = (value: string) => value.replace(/\s/g, "");
+function rawCell(cell:Cell){const v=cell.value;if(v&&typeof v==="object"&&("formula" in v||"sharedFormula" in v)&&(!("result" in v)||v.result===undefined||v.result===null))return "formula" in v?`=${v.formula}`:`[공유 수식 ${v.sharedFormula}]`;if(v instanceof Date&&Number.isFinite(v.getTime()))return v.toISOString().slice(0,10);return cell.text;}
 export function analyzeLegacyLedger(book: Workbook, sheetName: string, today: string): LegacyReview {
   const sheet = book.getWorksheet(sheetName);
   if (!sheet || sheet.rowCount > 10000) throw new Error("선택한 시트의 크기·이름을 확인해 주세요.");
@@ -29,6 +30,7 @@ export function analyzeLegacyLedger(book: Workbook, sheetName: string, today: st
     if (dateMarker === "잔액" || /^(전년이월|전월이월|차월이월|기초잔액|이월잔액)$/.test(marker)) { review.ignored.opening++; continue; }
     if (/^(소계|합계|총계|월계|누계|\d{1,2}월(?:합계|소계|계))$/.test(marker) || /^(소계|합계|총계|월계|누계)$/.test(dateMarker)) { review.ignored.summaries++; continue; }
     try {
+      for(const column of[1,3,4,5,6,7,8]){const issue=spreadsheetCellIssue(row.getCell(column).value);if(issue)throw new Error(issue);}
       const loan = BigInt(spreadsheetMoney(read(6))!); const incoming = BigInt(spreadsheetMoney(read(7))!); const outgoing = BigInt(spreadsheetMoney(read(8))!);
       if (loan === 0n && incoming === 0n && outgoing === 0n) { review.ignored.noAmount++; continue; }
       if (loan < 0n || incoming < 0n || outgoing < 0n) throw new Error("음수 금액: 취소·환급·정정 거래의 원내역을 확인해 주세요.");
@@ -47,7 +49,7 @@ export function analyzeLegacyLedger(book: Workbook, sheetName: string, today: st
       const amount = (outgoing > 0n ? outgoing : loan + incoming).toString();
       review.rows.push({ sourceRow: r, date: parsed.date, bankLabel, description, legacyCategory: legacyCategory.slice(0, 100), incomingType: outgoing > 0n ? "NONE" : loan > 0n ? "LOAN" : "GENERAL", direction, amount, ledgerBalance });
       if (direction === "IN") incomingTotal += BigInt(amount); else outgoingTotal += BigInt(amount);
-    } catch (error) { review.issues.push({ sourceRow: r, reason: error instanceof Error ? error.message : "행 내용을 확인해 주세요.", description: description.slice(0, 300), bankLabel: bankLabel.slice(0, 100), legacyCategory: legacyCategory.slice(0, 100) }); }
+    } catch (error) { review.issues.push({ sourceRow: r, reason: error instanceof Error ? error.message : "행 내용을 확인해 주세요.", description: description.slice(0, 300), bankLabel: bankLabel.slice(0, 100), legacyCategory: legacyCategory.slice(0, 100),rawDate:rawCell(row.getCell(1)),rawLoan:rawCell(row.getCell(6)),rawIncoming:rawCell(row.getCell(7)),rawOutgoing:rawCell(row.getCell(8)) }); }
   }
   review.incoming = incomingTotal.toString(); review.outgoing = outgoingTotal.toString();
   return review;
