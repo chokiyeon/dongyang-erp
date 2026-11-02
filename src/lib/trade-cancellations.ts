@@ -23,7 +23,6 @@ export async function registerTradeCancellation(tx:Prisma.TransactionClient,sour
  const original=await tx.tradeDocument.findFirst({where:{id:source.originalDocumentId,companyId:COMPANY_ID},include:{partner:true,workbookSource:true,monthlyPayment:{select:{id:true}}}});
  if(!original||original.version!==source.originalVersion||original.voidedAt)throw new InputError('원본 청구가 변경되었거나 취소되었습니다. 다시 조회하세요.');
  if(original.issuedDate.toISOString().slice(0,7)!==row.date.slice(0,7))throw new InputError('다른 달의 수정증빙은 별도 기간 정산이 필요합니다. 같은 달의 전액취소만 처리하세요.');
- if(new Date(row.date)<original.issuedDate)throw new InputError('수정증빙 작성일은 원본 작성일보다 빠를 수 없습니다.');
  if(original.kind!==row.kind||!original.taxApprovalNumber||original.taxApprovalNumber===row.approval)throw new InputError('원본의 매입·매출 구분과 서로 다른 승인번호를 확인하세요.');
  if(original.evidence!=='TAX_INVOICE')throw new InputError('세금계산서 원본 청구를 선택하세요.');
  if(original.settledAmount.toFixed(0)!=='0'||original.cashPlanId||original.monthlyPayment)throw new InputError('입금·지급·예산안·정기 지급이 연결된 청구는 별도 정산이 필요합니다. 연결 없는 미정산 원본만 선택하세요.');
@@ -57,7 +56,7 @@ export async function cancellationCandidates(db:PrismaClient,input:{kind:string;
 
 export async function replacementCandidates(db:PrismaClient,input:{kind:string;date:string;businessNumber:string}){
  const kind=input.kind==='SALE'?'SALE':input.kind==='PURCHASE'?'PURCHASE':null,issued=date(input.date,'재발급 작성일'),businessNumber=normalizeBusinessNumber(input.businessNumber);if(!kind||!issued||!businessNumber)throw new InputError('재발급 원본의 구분·작성일·사업자번호를 확인하세요.');
- const first=new Date(Date.UTC(issued.getUTCFullYear(),issued.getUTCMonth(),1));const rows=await db.tradeCancellation.findMany({where:{companyId:COMPANY_ID,voidedAt:null,issuedDate:{gte:first,lte:issued},originalDocument:{companyId:COMPANY_ID,kind,voidedAt:{not:null},partner:{businessNumber}}},include:{originalDocument:{select:{reference:true,title:true}}},orderBy:[{issuedDate:'desc'},{id:'desc'}],take:101});if(rows.length>100)throw new InputError('재발급 연결 후보가 많습니다. 원본을 먼저 확인하세요.');return rows.map(r=>({id:r.id,reference:r.originalDocument.reference,title:r.originalDocument.title,version:r.version,taxApprovalNumber:r.taxApprovalNumber,issuedDate:r.issuedDate.toISOString().slice(0,10)}));
+ const first=new Date(Date.UTC(issued.getUTCFullYear(),issued.getUTCMonth(),1)),next=new Date(Date.UTC(issued.getUTCFullYear(),issued.getUTCMonth()+1,1));const rows=await db.tradeCancellation.findMany({where:{companyId:COMPANY_ID,voidedAt:null,issuedDate:{gte:first,lt:next},originalDocument:{companyId:COMPANY_ID,kind,voidedAt:{not:null},partner:{businessNumber}}},include:{originalDocument:{select:{reference:true,title:true}}},orderBy:[{issuedDate:'desc'},{id:'desc'}],take:101});if(rows.length>100)throw new InputError('재발급 연결 후보가 많습니다. 원본을 먼저 확인하세요.');return rows.map(r=>({id:r.id,reference:r.originalDocument.reference,title:r.originalDocument.title,version:r.version,taxApprovalNumber:r.taxApprovalNumber,issuedDate:r.issuedDate.toISOString().slice(0,10)}));
 }
 
 export async function hasActiveReissue(db:PrismaClient|Prisma.TransactionClient,cancellationId:string){

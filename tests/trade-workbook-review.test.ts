@@ -20,3 +20,7 @@ test('수정·음수·수식 누락·잘못된 날짜·숫자 승인번호를 �
  const zero=row('D');zero[16]='0';zero[14]='1000';s.addRow(zero);b.addWorksheet('알수없는시트').addRow(row());
  const result=reviewTradeWorkbook(b,'2026-11-02');assert.deepEqual(result.rows.map(x=>x.status),['HOLD','HOLD','HOLD','HOLD','REVIEW']);assert.ok(result.rows[0].reasons.some(x=>x.includes('음수')));assert.ok(result.rows[1].raw[39].includes('SUM'));assert.deepEqual(result.unrecognized,['알수없는시트']);
 });
+
+test('같은 청구의 다른 품목·수량·품목금액은 청구 충돌이 아니며 원본 세부행을 모두 보존한다',async()=>{
+ const b=fixture(),first=row('MULTILINE');first[26]='합성 품목 A';first[28]='10';first[30]='400';first[31]='40';b.getWorksheet('매 입')!.addRow(first);const second=row('MULTILINE');second[26]='합성 품목 B';second[28]='20';second[30]='600';second[31]='60';b.getWorksheet('입1')!.addRow(second);const review=reviewTradeWorkbook(b,'2026-11-02');assert.deepEqual(review.rows.map(r=>r.status),['REVIEW','DUPLICATE']);assert.equal(review.rows[1].raw[26],'합성 품목 B');assert.ok(review.rows[1].reasons[0].includes('품목·메모는 보존'));const output=await buildTradeWorkbookReview(review,'a'.repeat(64));assert.equal(output.getWorksheet('원본_4')!.getCell('AB3').value,'합성 품목 B');
+});

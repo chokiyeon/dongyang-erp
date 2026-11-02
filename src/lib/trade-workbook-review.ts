@@ -31,9 +31,12 @@ export function reviewTradeWorkbook(book:Workbook,today:string):TradeWorkbookRev
  const groups=new Map<string,TradeWorkbookRow[]>();for(const r of result.rows){if(!r.approval)continue;const list=groups.get(r.approval)??[];list.push(r);groups.set(r.approval,list);}
  for(const list of groups.values()){
   if(list.length<2)continue;
-  const key=(r:TradeWorkbookRow)=>JSON.stringify([r.kind,r.date,clean(r.raw[4]??""),clean(r.raw[9]??""),r.partner.trim(),r.gross,r.supply,r.tax,...r.raw.slice(17,33)]);
-  if(new Set(list.map(key)).size>1){for(const r of list){r.status="HOLD";r.reasons.push("같은 승인번호의 거래 구분·금액·품목 등 내용이 다릅니다. 원본 충돌을 확인하세요.");}continue;}
-  const first=list[0];for(const r of list.slice(1)){r.duplicateOf=`${first.sheet}!${first.row}`;if(r.status!=="HOLD"){r.status="DUPLICATE";r.reasons.push(`같은 승인번호·내용이 ${r.duplicateOf}에도 있습니다. 중복 합산하지 않습니다.`);}}
+  const id=(v:string)=>v.normalize('NFKC').replace(/[\s-]/g,'');
+  const party=(r:TradeWorkbookRow,business:number,name:number)=>{const value=id(r.raw[business]??'');return /^\d{10}$/.test(value)?value:JSON.stringify([value,(r.raw[name]??'').normalize('NFKC').trim()]);};
+  const money=(v:string)=>{try{return v?BigInt(v).toString():'';}catch{return v;}};
+  const key=(r:TradeWorkbookRow)=>JSON.stringify([r.kind,r.date,party(r,4,6),id(r.raw[5]??''),party(r,9,11),id(r.raw[10]??''),money(r.gross),money(r.supply),money(r.tax),id(r.raw[17]??''),id(r.raw[18]??'')]);
+  if(new Set(list.map(key)).size>1){for(const r of list){r.status="HOLD";r.reasons.push("같은 승인번호의 거래 구분·사업자·세금계산서 분류·청구 금액이 다릅니다. 원본 충돌을 확인하세요.");}continue;}
+  const first=list[0];for(const r of list.slice(1)){r.duplicateOf=`${first.sheet}!${first.row}`;if(r.status!=="HOLD"){r.status="DUPLICATE";r.reasons.push(`같은 승인번호·청구 합계가 ${r.duplicateOf}에도 있습니다. 품목·메모는 보존하고 청구를 중복 합산하지 않습니다.`);}}
  }
  return result;
 }
