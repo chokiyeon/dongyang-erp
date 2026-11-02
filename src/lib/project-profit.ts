@@ -1,16 +1,18 @@
+import {enrichPurchaseOutstanding} from "./purchase-costs";
 import {assertPeriodsOpen} from "./period-guard";
 import { createHash } from "node:crypto";
-import type { Prisma } from "@/generated/prisma/client";
+import type { Prisma,PrismaClient } from "@/generated/prisma/client";
 import { COMPANY_ID } from "./constants";
 import { InputError, text, amount, date, revision, choice } from "./validation";
 import { koreanToday } from "./forecast";
 import { PROJECT_COST_CATEGORIES, REMAINING_COST_FIELDS } from "./project-profit-types";
 import { summarizeProjectProfit } from "./project-profit-summary";
-export async function profitSources(tx: Prisma.TransactionClient, projectId: string) {
+export async function profitSources(tx: PrismaClient|Prisma.TransactionClient, projectId: string) {
   const [documents,entries] = await Promise.all([
     tx.tradeDocument.findMany({where:{companyId:COMPANY_ID,projectId,kind:"PURCHASE",voidedAt:null,issuedDate:{lte:new Date(koreanToday())}},orderBy:{id:"asc"}}),
     tx.projectCostEntry.findMany({where:{projectId,project:{companyId:COMPANY_ID},voidedAt:null,incurredDate:{lte:new Date(koreanToday())}},orderBy:{id:"asc"}}),
-  ]);return {documents,entries};
+  ]);
+  return {documents,entries:await enrichPurchaseOutstanding(tx,entries)};
 }
 export async function saveProjectProfit(tx: Prisma.TransactionClient,data:FormData,operation:"estimate"|"cost"|"void") {
   const projectId=text(data,"projectId","현장",true,50); const version=revision(data);const requestId=text(data,"requestId","요청",true,50);const reason=text(data,"reason","처리 사유",true,300);

@@ -1,3 +1,4 @@
+import {enrichPurchaseOutstanding} from "@/lib/purchase-costs";
 import { Suspense } from "react";
 import { randomUUID } from "node:crypto";
 import Link from "next/link";
@@ -16,20 +17,23 @@ const won=(n:bigint|string|null)=>n===null?"검토 대기":`${BigInt(n).toLocale
 function history(value:unknown){const r=value&&typeof value==="object"?value as Record<string,unknown>:{};if(r.voided)return"발생원가 취소";if(typeof r.amount==="string")return`${r.reference ?? ""} · ${r.title ?? ""} · ${won(r.amount)}`;return Object.entries(REMAINING_COST_FIELDS).filter(([key])=>key in r).map(([key,label])=>`${label} ${typeof r[key]==="string"?won(r[key] as string):"미입력"}`).join(" · ")||"신규 등록 전";}
 async function Content({searchParams}:{searchParams:Promise<Query>}){
   await requireAdmin();const company=await requireCompany();const db=getDb();const q=await searchParams;const today=koreanToday();
-  const [projects,unassigned]=await Promise.all([
+  const [projects,unassignedDocuments,tradeReviews]=await Promise.all([
     db.project.findMany({where:{companyId:company.id},include:{tradeDocuments:{where:{kind:"PURCHASE",companyId:company.id,voidedAt:null,issuedDate:{lte:new Date(today)}},orderBy:{id:"asc"}},costEntries:{orderBy:[{incurredDate:"desc"},{id:"desc"}]}},orderBy:{code:"asc"}}),
-    db.tradeDocument.count({where:{companyId:company.id,kind:"PURCHASE",projectId:null,voidedAt:null}}),
+    db.tradeDocument.findMany({where:{companyId:company.id,kind:"PURCHASE",projectId:null,companyExpense:false,voidedAt:null},select:{id:true}}),
+    db.sourceCostReview.findMany({where:{companyId:company.id,sourceType:"TRADE",active:true,needsReview:false},select:{sourceId:true}}),
   ]);
+  const enriched=await enrichPurchaseOutstanding(db,projects.flatMap(p=>p.costEntries));
+  const unassigned=unassignedDocuments.filter(d=>!tradeReviews.some(r=>r.sourceId===d.id)).length;
   const selected=q.project?projects.find(p=>p.id===q.project):null;if(q.project&&!selected)notFound();
   const cost=q.cost?selected?.costEntries.find(c=>c.id===q.cost&&!c.voidedAt):null;if(q.cost&&!cost)notFound();
   const changes=selected?await db.projectProfitChange.findMany({where:{projectId:selected.id,project:{companyId:company.id}},orderBy:[{createdAt:"desc"},{id:"desc"}],take:10}):[];
-  const summarize=(p:typeof projects[number])=>summarizeProjectProfit(p,p.tradeDocuments,p.costEntries.filter(c=>!c.voidedAt&&c.incurredDate.toISOString().slice(0,10)<=today));
+  const summarize=(p:typeof projects[number])=>summarizeProjectProfit(p,p.tradeDocuments,enriched.filter(c=>c.projectId===p.id&&!c.voidedAt&&c.incurredDate.toISOString().slice(0,10)<=today));
   const s=selected?summarize(selected):null;
   const meta=()=>selected&&<><input type="hidden" name="projectId" value={selected.id}/><input type="hidden" name="version" value={selected.profitVersion}/><input type="hidden" name="requestId" value={randomUUID()}/></>;
-  return <><h1>준공 예상 손익</h1><p className="erp-page-description">확정 계약 공급가액 − 이미 발생한 원가 − 앞으로 발생할 예상 원가로 계산합니다. 지급 여부와 관계없이 매입 원가를 포함하고 은행 출금액을 다시 더하지 않습니다.</p>
-  <p className="mb-3 text-xs"><Link className="erp-row-action" href="/source-costs">급여·차량 총원가 확인·배부</Link> · 실지급액·공용 차량비 중 미등록 원가와 기존 수기 원가의 중복 여부를 함께 확인하세요.</p>
+  return <><h1>준공 예상 손익</h1><p className="erp-page-description">확정 계약 공급가액 − 이미 발생한 원가 − 앞으로 발생할 예상 원가로 계산합니다. 지급 여부와 관계없이 매입 원가를 포함하고 은행 출금액을 다시 더하지 않습니다. 여러 공사 매입의 미지급 참고액은 확인 원가 비율로 안분합니다.</p>
+  <p className="mb-3 text-xs"><Link className="erp-row-action" href="/source-costs">매입·급여·차량 원가 확인·배부</Link> · 실지급액·공용 차량비 중 미등록 원가와 기존 수기 원가의 중복 여부를 함께 확인하세요.</p>
   {q.saved&&<p role="status">{q.saved==="estimate"?"준공 예상 원가를 저장했습니다.":q.saved==="void"?"추가 발생원가를 취소했습니다.":"추가 발생원가를 저장했습니다."}</p>}
-  <Section title="원가 확인 사항"><p className="text-xs leading-6">등록 매입은 공급가액을 원가로 반영하고, 불공제로 확인한 부가세는 원가에 포함합니다. 원가 구분·증빙·부가세 공제 여부가 미확인인 자료가 있으면 이익 계산을 보류합니다. 추가 발생원가는 매입 문서에 없는 급여·미청구 자재·경비만 등록하세요. 승인되지 않은 추가공사 대금은 이익에 넣지 않습니다.</p><p className="mt-2 text-xs">현장 미지정 매입 {unassigned}건 · 본사 비용 또는 현장 누락인지 확인하세요. 매입·급여·경비가 빠지면 예상 이익이 과대 표시될 수 있습니다.</p><div className="mt-3 flex flex-wrap gap-3"><Link className="erp-row-action" href="/trades?kind=PURCHASE&project=__none">현장 미지정 매입 확인</Link><Link className="erp-row-action" href="/project-costs">현장 지급·미배분 확인</Link></div></Section>
+  <Section title="원가 확인 사항"><p className="text-xs leading-6">등록 매입은 공급가액을 원가로 반영하고, 불공제로 확인한 부가세는 원가에 포함합니다. 원가 구분·증빙·부가세 공제 여부가 미확인인 자료가 있으면 이익 계산을 보류합니다. 추가 발생원가는 매입 문서에 없는 급여·미청구 자재·경비만 등록하세요. 승인되지 않은 추가공사 대금은 이익에 넣지 않습니다.</p><p className="mt-2 text-xs">미배부 매입 {unassigned}건 · 여러 공사 배부 또는 현장 누락인지 확인하세요. 매입·급여·경비가 빠지면 예상 이익이 과대 표시될 수 있습니다.</p><div className="mt-3 flex flex-wrap gap-3"><Link className="erp-row-action" href="/trades?kind=PURCHASE&project=__none">현장 미지정 매입 확인</Link><Link className="erp-row-action" href="/project-costs">현장 지급·미배분 확인</Link></div></Section>
   <div className="mt-4"><Section title="현장별 준공 손익 전망" description="오늘까지 등록된 발생원가 기준입니다. 입력·검토가 끝난 현장만 예상 이익을 표시하며, 원가나 계약금액이 바뀌면 다시 검토해야 합니다."><div className="overflow-x-auto"><table className="erp-table"><thead><tr><th>현장</th><th>확정 계약 공급가액</th><th>발생원가 참고 합계</th><th>남은 예상 원가</th><th>예상 총원가</th><th>준공 예상 이익</th><th>상태</th><th>작업</th></tr></thead><tbody>{projects.map(p=>{const r=summarize(p);return<tr key={p.id}><td>{p.code} · {p.name}{!p.active&&" (사용 중지)"}</td><td>{p.contractAmount?won(p.contractAmount.toFixed(0)):"계약금액 미등록"}</td><td>{won(r.incurred)}</td><td>{won(r.remaining)}</td><td>{r.ready?won(r.expectedCost):"검토 대기"}</td><td className={r.expectedProfit!==null&&r.expectedProfit<0n?"font-bold text-red-700":""}>{won(r.expectedProfit)}</td><td>{r.ready?r.expectedProfit!<0n?"적자 예상":r.expectedProfit===0n?"손익분기":"이익 예상":r.issues.length?`자료 확인 ${r.issues.length}건`:"남은 원가·발생원가 재검토"}</td><td><Link className="erp-row-action" href={`/project-profit?project=${p.id}`}>원가·전망 관리</Link><Link className="erp-row-action ml-2" href={`/project-profit/statement?project=${p.id}`}>손익계산서</Link></td></tr>;})}{!projects.length&&<tr><td colSpan={8}>현장 관리에서 공사 현장을 먼저 등록하세요.</td></tr>}</tbody></table></div></Section></div>
   {selected&&s&&<><div className="mt-4"><Section title="선택 현장 손익 검토" description={`${selected.code} · ${selected.name} · 최종 검토 ${selected.profitReviewedAt?.toLocaleString("ko-KR",{timeZone:"Asia/Seoul"})??"미등록"}`}>
   <div className="mb-3"><Link className="erp-button erp-button-primary" href={`/project-profit/statement?project=${selected.id}`}>이 공사 손익계산서 보기</Link></div>
