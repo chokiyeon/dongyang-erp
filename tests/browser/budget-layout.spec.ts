@@ -55,6 +55,8 @@ test("원본 예산안의 통장·어음 및 좌우 입출금 배치와 엑셀 �
     await page.setViewportSize({ width: 390, height: 844 }); await page.goto("/forecast"); await expect(sheet).toBeVisible(); expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
     await page.setViewportSize({ width: 1440, height: 1000 }); await page.goto("/forecast?months=6"); await expect(page.getByRole("heading", { name: "6개월 잔액 전망", exact: true })).toBeVisible();
     await expect(page.locator('table[data-erp-report-title="월별 자금 예산안"] tbody tr')).toHaveCount(6);
+    await db.cashBaseline.update({where:{companyId_revision:{companyId:COMPANY_ID,revision:1}},data:{reconciliationPeriod:baseDate.toISOString().slice(0,7),reconciliationBasis:"changed-source"}});
+    await page.goto("/");await expect(page.locator(".erp-workspace").getByRole("alert")).toContainText("기준 순잔액 표시를 보류");await expect(page.getByRole("link",{name:/기준 순잔액/})).toContainText("재대조 필요");await expect(page.getByRole("link",{name:/기준 순잔액/})).not.toContainText("32,000,000");
   } finally {
     await db.receivedNote.deleteMany({ where: { companyId: COMPANY_ID, reference: `예시어음-${tag}` } });
     await db.cashSettlement.deleteMany({ where: { planId: { in: ids } } }); await db.cashPlan.deleteMany({ where: { id: { in: ids } } });

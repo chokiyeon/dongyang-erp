@@ -1,3 +1,4 @@
+import {assertBankNotVehicleMatched} from "./vehicle-cash";
 import {assertPeriodsOpen} from "./period-guard";
 import {refreshTradeCashPlan} from "./trade-cash";
 import { createHash } from "node:crypto";
@@ -90,6 +91,7 @@ export async function linkTradeBank(tx: Prisma.TransactionClient, data: FormData
   if (!document || document.version !== version) throw new InputError("문서가 변경되었습니다. 다시 조회해 주세요.");
   const transaction = await tx.bankTransaction.findFirst({ where: { id: transactionId, account: { companyId: COMPANY_ID }, internalTransfer: false }, include: { tradeLinks: { where: { voidedAt: null } } } });
   if (!transaction || transaction.direction !== (document.kind === "SALE" ? "IN" : "OUT")) throw new InputError("매출은 입금, 매입은 출금 거래를 선택해 주세요. 회사 계좌 간 이체는 연결할 수 없습니다.");
+  await assertBankNotVehicleMatched(tx,transaction.id);
   await assertPeriodsOpen(tx,transaction.tradedDate);
   const used = transaction.tradeLinks.reduce((sum,r) => sum + BigInt(r.amount.toFixed(0)), 0n);
   if (BigInt(value) > BigInt(document.grossAmount.toFixed(0)) - BigInt(document.settledAmount.toFixed(0))) throw new InputError("연결 금액이 문서의 미수·미지급 잔액을 초과합니다.");

@@ -15,3 +15,5 @@ export async function saveExpenseAction(_s:FormState,d:FormData){return perform(
 export async function voidExpenseAction(_s:FormState,d:FormData){return perform("expenseVoid",d);}
 
 export async function linkExpenseAction(_s:FormState,d:FormData){return perform("expenseLink",d);}
+
+export async function matchExpenseCashAction(_s:FormState,d:FormData){return perform("expenseCash",d);}

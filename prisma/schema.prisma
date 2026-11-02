@@ -164,6 +164,7 @@ enum CashCertainty {
 }
 
 model CashPlan {
+  vehicleExpense VehicleExpense?
   replacedById String?
   replacedBy CashPlan? @relation("CashPlanReplacement",fields:[replacedById],references:[id],onDelete:Restrict)
   replacedPlans CashPlan[] @relation("CashPlanReplacement")
@@ -837,6 +838,8 @@ model VehicleAssignment {
   createdAt DateTime @default(now())
 }
 model VehicleExpense {
+  cashPlanId String? @unique
+  cashPlan CashPlan? @relation(fields:[cashPlanId],references:[id],onDelete:Restrict)
   documentId String? @unique
   document TradeDocument? @relation(fields:[documentId],references:[id],onDelete:Restrict)
   id String @id @default(cuid())

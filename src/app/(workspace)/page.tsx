@@ -1,3 +1,4 @@
+import {bankReconciliationMonth} from "@/lib/bank-reconciliation";
 import { Suspense } from "react";
 import Link from "next/link";
 import { requireAdmin } from "@/lib/auth";
@@ -19,6 +20,8 @@ async function Overview() {
     db.cashPlan.findMany({ where: { companyId: company.id }, include: { settlements: true }, orderBy: { plannedDate: "asc" } }),
     db.tradeDocument.groupBy({ by: ["kind"], where: { companyId: company.id, voidedAt: null }, _sum: { grossAmount: true, settledAmount: true } }),
   ]);
+  const reconciliation=baseline?.reconciliationPeriod?await bankReconciliationMonth(db,company.id,baseline.reconciliationPeriod):null;
+  const staleBaseline=Boolean(reconciliation&&(!reconciliation.ready||reconciliation.basis!==baseline?.reconciliationBasis));
   const tradeRemaining = (kind: "SALE" | "PURCHASE") => { const r = trades.find((g) => g.kind === kind); return BigInt(r?._sum.grossAmount?.toFixed(0) ?? "0")-BigInt(r?._sum.settledAmount?.toFixed(0) ?? "0"); };
   const pending = plans.map((p) => ({ ...p, summary: cashSummary(p) })).filter((p) => p.summary.remaining > 0n);
   const incoming = pending.filter((p) => p.direction === "IN").reduce((sum, p) => sum + p.summary.remaining, 0n);
@@ -28,8 +31,9 @@ async function Overview() {
   return <>
     <div className="erp-page-tools"><div><h1>업무 현황</h1><span className="erp-badge erp-badge-blue">경리·자금</span></div><span className="erp-page-date">조회 기준일 {today.replaceAll("-", ".")}</span></div>
     <p className="erp-page-description">회사 자금과 현장별 업무 현황을 확인합니다. 금액은 등록된 자료 기준입니다.</p>
+    {staleBaseline&&<p role="alert" className="mb-4 rounded border border-amber-300 bg-amber-50 p-3">통장 대조 자료가 변경되어 기준 순잔액 표시를 보류했습니다. <Link className="erp-row-action" href={`/bank-reconciliation?period=${baseline!.reconciliationPeriod}`}>통장 잔액을 재대조하고 기준 잔액을 반영하세요.</Link></p>}
     <div className="erp-summary" aria-label="자금 요약">
-      <Link href="/forecast" className="erp-summary-item"><p>기준 순잔액</p><strong className="erp-summary-value">{baseline ? BigInt(baseline.amount.toFixed(0)).toLocaleString("ko-KR") : "미등록"}{baseline && <small>원</small>}</strong><p className="erp-summary-sub">{baseline ? `${baseline.baseDate.toISOString().slice(0, 10)} 종료 기준 · 수기 확인` : "자금계획에서 기준 잔액 등록"}</p></Link>
+      <Link href="/forecast" className="erp-summary-item"><p>기준 순잔액</p><strong className="erp-summary-value">{staleBaseline?"재대조 필요":baseline ? BigInt(baseline.amount.toFixed(0)).toLocaleString("ko-KR") : "미등록"}{baseline&&!staleBaseline && <small>원</small>}</strong><p className="erp-summary-sub">{baseline ? `${baseline.baseDate.toISOString().slice(0, 10)} 종료 기준 · ${staleBaseline?"원본 변경 확인 필요":baseline.reconciliationPeriod?"통장 대조 합산":"수기 확인"}` : "자금계획에서 기준 잔액 등록"}</p></Link>
       <Link href="/cash?direction=IN" className="erp-summary-item"><p>미처리 입금 예정</p><strong className="erp-summary-value">{incoming.toLocaleString("ko-KR")}<small>원</small></strong><p className="erp-summary-sub">전체 예정 중 남은 수금액 · 예상 포함</p></Link>
       <Link href="/cash?direction=OUT" className="erp-summary-item"><p>미처리 지출 예정</p><strong className="erp-summary-value">{outgoing.toLocaleString("ko-KR")}<small>원</small></strong><p className="erp-summary-sub">전체 예정 중 남은 지급액</p></Link>
       <Link href="/cash" className="erp-summary-item"><p>예정일 경과 미처리</p><strong className="erp-summary-value" style={overdue ? { color: "#b65a54" } : undefined}>{overdue}<small>건</small></strong><p className="erp-summary-sub">실제 입출금 여부 확인 필요</p></Link>
@@ -50,8 +54,8 @@ async function Overview() {
       </Section>
       <Section title="청구자료 기준 미수·미지급" description="입출금 예정과 별도 집계입니다. 등록 청구액에서 은행 연결액을 뺀 금액이며 서로 더하지 않습니다."><table><thead><tr><th>구분</th><th>잔액</th><th>자료</th></tr></thead><tbody><tr><td>매출 미수금</td><td>{won(tradeRemaining("SALE"))}</td><td><Link className="erp-row-action" href="/trades?kind=SALE">매출</Link></td></tr><tr><td>매입 미지급금</td><td>{won(tradeRemaining("PURCHASE"))}</td><td><Link className="erp-row-action" href="/trades?kind=PURCHASE">매입</Link></td></tr></tbody></table><div className="mt-3"><Link className="erp-row-action" href="/receivables">현장·거래처별 잔액</Link> <Link className="erp-row-action" href="/tax-summary">부가세 추정</Link></div></Section>
       <Section title="업무 확인 사항">
-        <table><thead><tr><th className="text-left">확인 항목</th><th>현황</th><th>바로가기</th></tr></thead><tbody><tr><td>자금계획 기준 잔액</td><td><span className={`erp-badge ${baseline ? "erp-badge-green" : "erp-badge-red"}`}>{baseline ? "등록" : "미등록"}</span></td><td><Link href="/forecast" className="erp-row-action">확인</Link></td></tr><tr><td>예정일 지난 입출금</td><td>{overdue}건</td><td><Link href="/cash" className="erp-row-action">조회</Link></td></tr><tr><td>한도 미확인 계좌</td><td>{accounts.filter((a) => a.overdraftLimit === null).length}건</td><td><Link href="/accounts" className="erp-row-action">확인</Link></td></tr></tbody></table>
-        <p className="mt-3 text-[11px] leading-5 text-slate-500">은행 실시간 연동·급여·어음·현장 원가는 순차 개발 중입니다. 현재 금액은 수기 등록한 예정과 실제 처리 내역을 기준으로 합니다.</p>
+        <table><thead><tr><th className="text-left">확인 항목</th><th>현황</th><th>바로가기</th></tr></thead><tbody><tr><td>자금계획 기준 잔액</td><td><span className={`erp-badge ${baseline&&!staleBaseline ? "erp-badge-green" : "erp-badge-red"}`}>{staleBaseline?"재대조 필요":baseline ? "등록" : "미등록"}</span></td><td><Link href="/forecast" className="erp-row-action">확인</Link></td></tr><tr><td>예정일 지난 입출금</td><td>{overdue}건</td><td><Link href="/cash" className="erp-row-action">조회</Link></td></tr><tr><td>한도 미확인 계좌</td><td>{accounts.filter((a) => a.overdraftLimit === null).length}건</td><td><Link href="/accounts" className="erp-row-action">확인</Link></td></tr><tr><td>이번 달 경리 마감 점검</td><td>누락·재검토 확인</td><td><Link href={`/month-end-review?period=${today.slice(0,7)}`} className="erp-row-action">점검</Link></td></tr></tbody></table>
+        <p className="mt-3 text-[11px] leading-5 text-slate-500">금액은 등록한 장부·청구·예정·실제 처리 내역 기준입니다. 은행 파일과 원본을 대조하고, 급여·세무·공사 원가는 각 검토 화면에서 확인하세요.</p>
       </Section>
     </div>
     <div className="erp-bottom-strip"><strong>기준정보</strong><Link href="/partners">거래처 관리</Link><span>·</span><Link href="/settings">회사 정보</Link><span className="ml-auto">공사별 원가와 자금 흐름을 연결하는 동양계전 ERP</span></div>

@@ -48,3 +48,51 @@ test("차량비 매입 연결은 지급 원본을 재사용하고 수기 원가 
  throw rollback;
  },{timeout:20000}),err=>err===rollback);}finally{await db.$disconnect();}
 });
+test("고지서 은행 대조는 기존 분할 지급을 재사용하고 해제해도 실제 실적을 보존한다",async()=>{
+ const db=getDb(),rollback=new Error("rollback");try{await assert.rejects(db.$transaction(async tx=>{
+ await tx.company.upsert({where:{id:COMPANY_ID},create:{id:COMPANY_ID,name:"고지서 대조 회사"},update:{}});
+ const vehicleId=await saveVehicle(tx,"vehicle",request({plate:`대조${randomUUID().slice(0,8)}`,name:"고지서 시험 차량",kind:"TRUCK",usage:"SHARED",active:"on"}));
+ await saveVehicle(tx,"expense",request({vehicleId,reference:"NOTICE",category:"FINE",incurredDate:"2026-09-30",amount:"40000",title:"은행 대조 과태료",payer:"COMPANY",companyExpense:"on",paymentStatus:"UNPAID",evidence:"합성 고지서"}));
+ await tx.accountingPeriodLock.create({data:{companyId:COMPANY_ID,period:"2026-09",packageId:"synthetic",digest:"synthetic",locked:true}});
+ const expense=await tx.vehicleExpense.findUniqueOrThrow({where:{vehicleId_reference:{vehicleId,reference:"NOTICE"}}});
+ const account=await tx.bankAccount.create({data:{companyId:COMPANY_ID,bankName:"대조 은행",label:randomUUID()}});
+ const bank=await tx.bankTransaction.create({data:{accountId:account.id,tradedDate:new Date("2026-10-02"),direction:"OUT",amount:"40000",bankBalance:"-12345",description:"과태료 원본 출금"}});
+ const plan=await tx.cashPlan.create({data:{companyId:COMPANY_ID,direction:"OUT",certainty:"CONFIRMED",title:"기존 과태료 지급",category:"OTHER",plannedDate:new Date("2026-09-30"),plannedAmount:"40000"}});
+ const {settleCashPlan,voidCashSettlement}=await import("../src/lib/cash");
+ for(const [version,amount]of[["0","10000"],["1","30000"]])await settleCashPlan(tx,request({planId:plan.id,version,bankTransactionId:bank.id,amount,note:"기존 실제 지급"}));
+ const original=await tx.cashSettlement.findMany({where:{planId:plan.id},orderBy:{id:"asc"}});
+ const match=async(cashPlanId:string)=>request({vehicleId,expenseId:expense.id,version:String((await tx.vehicleExpense.findUniqueOrThrow({where:{id:expense.id}})).version),cashPlanId,confirmed:"on"});
+ const input=await match(plan.id);await saveVehicle(tx,"expenseCash",input);await saveVehicle(tx,"expenseCash",input);
+ const {vehiclePaymentLabel}=await import("../src/lib/vehicle-types");assert.equal(vehiclePaymentLabel((await vehicleOverview(tx,"2026-09")).expenses.find(e=>e.id===expense.id)!),"은행 출금 대조 완료");assert.ok(!(await vehicleOverview(tx,"2026-10")).unpaid.some(e=>e.id===expense.id));
+ await assert.rejects(voidCashSettlement(tx,request({settlementId:original[0].id,version:"3"})),/대조를 먼저 해제/);
+ const partner=await tx.partner.create({data:{companyId:COMPANY_ID,code:randomUUID(),name:"출금 중복 검증 공급자",type:"SUPPLIER"}});const document=await tx.tradeDocument.create({data:{companyId:COMPANY_ID,kind:"PURCHASE",reference:randomUUID(),title:"중복 연결 차단",partnerId:partner.id,issuedDate:new Date("2026-10-01"),dueDate:new Date("2026-10-02"),supplyAmount:"40000",taxAmount:"0",grossAmount:"40000",taxKind:"EXEMPT",evidence:"STATEMENT",proofConfirmed:true,paymentMethod:"BANK_TRANSFER",note:"합성"}});
+ const {linkTradeBank}=await import("../src/lib/trades");await assert.rejects(linkTradeBank(tx,request({documentId:document.id,transactionId:bank.id,version:"0",amount:"40000",note:"같은 출금 중복 시도"})),/차량 고지서/);
+ const {connectTradeCashPlan}=await import("../src/lib/trade-cash");await assert.rejects(connectTradeCashPlan(tx,request({documentId:document.id,version:"0",mode:"EXISTING",cashPlanId:plan.id,noDuplicate:"on",existingPaidConfirmed:"on"})),/일반 예정/);
+ const {assertBankNotVehicleMatched}=await import("../src/lib/vehicle-cash");await assert.rejects(assertBankNotVehicleMatched(tx,bank.id),/차량 고지서/);
+ await assert.rejects(saveVehicle(tx,"expenseVoid",request({vehicleId,expenseId:expense.id,version:"1"})),/먼저 해제/);
+ await saveVehicle(tx,"expenseCash",await match(""));assert.ok((await vehicleOverview(tx,"2026-10")).unpaid.some(e=>e.id===expense.id));
+ const current=await tx.cashSettlement.findMany({where:{planId:plan.id},orderBy:{id:"asc"}});assert.deepEqual(current,original);
+ const bankAfter=await tx.bankTransaction.findUniqueOrThrow({where:{id:bank.id}});assert.equal(bankAfter.amount.toFixed(0),"40000");assert.equal(bankAfter.bankBalance?.toFixed(0),"-12345");assert.equal((await tx.vehicleExpense.findUniqueOrThrow({where:{id:expense.id}})).paymentStatus,"UNPAID");
+ await assertBankNotVehicleMatched(tx,bank.id);assert.equal(await tx.cashPlan.count({where:{id:plan.id}}),1);
+ const manual=await tx.cashPlan.create({data:{companyId:COMPANY_ID,direction:"OUT",certainty:"CONFIRMED",title:"수기 지급 대조 거부",category:"기타",plannedDate:new Date("2026-10-02"),plannedAmount:"40000",completedAt:new Date()}});await tx.cashSettlement.create({data:{planId:manual.id,amount:"40000",processedDate:new Date("2026-10-02"),requestId:randomUUID()}});await assert.rejects(saveVehicle(tx,"expenseCash",await match(manual.id)),/실제 은행 출금/);
+
+ throw rollback;
+ },{timeout:20000}),err=>err===rollback);}finally{await db.$disconnect();}
+});
+test("고지서에서 미반영 출금을 최초 반영해도 은행 금액을 바꾸거나 지급 실적을 중복하지 않는다",async()=>{
+ const db=getDb(),rollback=new Error("rollback");try{await assert.rejects(db.$transaction(async tx=>{
+ await tx.company.upsert({where:{id:COMPANY_ID},create:{id:COMPANY_ID,name:"출금 최초 반영"},update:{}});
+ const vehicleId=await saveVehicle(tx,"vehicle",request({plate:`최초${randomUUID().slice(0,8)}`,name:"최초 반영 차량",kind:"SEDAN",usage:"OFFICE",active:"on"}));
+ await saveVehicle(tx,"expense",request({vehicleId,reference:"DIRECT",category:"TAX",incurredDate:"2026-09-30",amount:"50000",title:"자동차세 고지서",payer:"COMPANY",companyExpense:"on",paymentStatus:"UNPAID",evidence:"합성 자동차세 고지"}));
+ const expense=await tx.vehicleExpense.findUniqueOrThrow({where:{vehicleId_reference:{vehicleId,reference:"DIRECT"}}});
+ await tx.accountingPeriodLock.create({data:{companyId:COMPANY_ID,period:"2026-09",locked:true,packageId:"synthetic",digest:"synthetic"}});
+ const account=await tx.bankAccount.create({data:{companyId:COMPANY_ID,bankName:"최초 반영 검증은행",label:randomUUID()}});const bank=await tx.bankTransaction.create({data:{accountId:account.id,tradedDate:new Date("2026-10-02"),direction:"OUT",amount:"50000",bankBalance:"99999999999999999999",description:"자동차세 실제 출금"}});
+ const input=request({vehicleId,expenseId:expense.id,version:"0",bankTransactionId:bank.id,confirmed:"on",noDuplicate:"on"});const unchecked=new FormData();for(const[k,v]of input.entries())unchecked.set(k,v);unchecked.delete("noDuplicate");await assert.rejects(saveVehicle(tx,"expenseCash",unchecked),/중복되지/);
+ await saveVehicle(tx,"expenseCash",input);await saveVehicle(tx,"expenseCash",input);
+ const linked=await tx.vehicleExpense.findUniqueOrThrow({where:{id:expense.id},include:{cashPlan:{include:{settlements:true}}}});assert.ok(linked.cashPlan);assert.equal(linked.cashPlan.settlements.length,1);assert.equal(linked.cashPlan.settlements[0].bankTransactionId,bank.id);assert.equal(linked.cashPlan.settlements[0].amount.toFixed(0),"50000");
+ const {cashSummary}=await import("../src/lib/cash");assert.equal(cashSummary(linked.cashPlan).actual,50000n);assert.equal(cashSummary(linked.cashPlan).remaining,0n);assert.ok(linked.cashPlan.completedAt);const {buildForecast}=await import("../src/lib/forecast");const forecast=buildForecast({baseDate:new Date("2026-09-30"),amount:{toFixed:()=>"100000"}},[linked.cashPlan],3);assert.equal(forecast.rows.reduce((sum,r)=>sum+r.actualOut,0n),50000n);assert.equal(forecast.rows.at(-1)?.confirmedBalance,50000n);assert.equal(linked.cashPlan.category,"세금");assert.equal(linked.cashPlan.plannedDate.toISOString().slice(0,10),"2026-10-02");
+ const afterBank=await tx.bankTransaction.findUniqueOrThrow({where:{id:bank.id}});assert.equal(afterBank.amount.toFixed(0),"50000");assert.equal(afterBank.bankBalance?.toFixed(0),"99999999999999999999");
+ assert.equal(await tx.cashSettlement.count({where:{bankTransactionId:bank.id,voidedAt:null}}),1);assert.equal(await tx.vehicleChange.count({where:{vehicleId,operation:"expenseCash"}}),1);
+ throw rollback;
+ },{timeout:20000}),err=>err===rollback);}finally{await db.$disconnect();}
+});

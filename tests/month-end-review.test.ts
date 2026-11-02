@@ -24,13 +24,19 @@ test("월말 점검은 회사·기간·취소 및 실제 잔액을 구분하고 
    await tx.cashSettlement.create({data:{planId:plan.id,amount:70,processedDate:new Date("2026-10-31"),note:"취소 합성",requestId:randomUUID(),voidedAt:new Date()}});
    await tx.cashPlan.create({data:{companyId:c.id,title:"다음 달 제외",category:"OTHER",direction:"OUT",plannedDate:new Date("2026-11-01"),plannedAmount:100}});
    const carry=await tx.cashPlan.create({data:{companyId:c.id,title:"전월 이월",category:"OTHER",direction:"IN",plannedDate:new Date("2026-09-30"),plannedAmount:100}});
+   const vehicle=await tx.vehicle.create({data:{companyId:c.id,plate:"TEST",name:"월말 검증차량",kind:"TRUCK",usage:"SHARED"}});
+   const vehicleExpense=await tx.vehicleExpense.create({data:{vehicleId:vehicle.id,reference:"NOTICE",category:"FINE",incurredDate:new Date("2026-10-31"),amount:"40000",title:"월말 과태료",payer:"UNKNOWN",paymentStatus:"UNCONFIRMED",evidence:"합성"}});
+   await tx.vehicleExpense.create({data:{vehicleId:vehicle.id,reference:"NEXT",category:"TAX",incurredDate:new Date("2026-11-01"),amount:"10000",title:"다음월 제외",payer:"UNKNOWN",paymentStatus:"UNCONFIRMED",evidence:"합성"}});
    const before=await loadMonthEndReview(tx,c.id,"2026-10");const counts=Object.fromEntries(before.checks.map(r=>[r.key,r.count]));
-   assert.equal(counts.bank,1);assert.equal(counts.proof,1);assert.equal(counts.vat,1);assert.equal(counts.project,1);assert.equal(counts.payroll,1);assert.equal(counts.recurringMissing,1);assert.equal(counts.recurring,0);assert.equal(counts.cash,2);
+   assert.equal(counts.vehicle,1);assert.equal(counts.vehicleCost,0);assert.equal(counts.bank,1);assert.equal(counts.proof,1);assert.equal(counts.vat,1);assert.equal(counts.project,1);assert.equal(counts.payroll,1);assert.equal(counts.recurringMissing,1);assert.equal(counts.recurring,0);assert.equal(counts.cash,2);
    assert.equal(before.latest,null);assert.equal(before.checks.find(c=>c.key==="proof")?.href,"/trades?from=2026-10-01&to=2026-10-31");assert.equal(before.checks.find(c=>c.key==="vat")?.href,"/tax-summary?month=2026-10&mode=MONTH");
    await tx.monthlyPayment.create({data:{templateId:template.id,period:"2026-10",title:"합성 월세",partnerId:partner.id,dueDate:new Date("2026-10-31")}});
    await tx.cashSettlement.create({data:{planId:plan.id,amount:70,processedDate:new Date("2026-10-31"),note:"잔액 정산 합성",requestId:randomUUID()}});
    await tx.cashPlan.update({where:{id:carry.id},data:{completedAt:new Date()}});
-   const after=await loadMonthEndReview(tx,c.id,"2026-10");const updated=Object.fromEntries(after.checks.map(r=>[r.key,r.count]));assert.equal(updated.recurringMissing,0);assert.equal(updated.recurring,1);assert.equal(updated.cash,0);
+   await tx.vehicleExpense.update({where:{id:vehicleExpense.id},data:{payer:"COMPANY",paymentStatus:"UNPAID"}});
+   const vehiclePending=Object.fromEntries((await loadMonthEndReview(tx,c.id,"2026-10")).checks.map(r=>[r.key,r.count]));assert.equal(vehiclePending.vehicle,0);assert.equal(vehiclePending.vehicleCost,1);
+   await tx.sourceCostReview.create({data:{companyId:c.id,sourceType:"VEHICLE",sourceId:vehicleExpense.id,totalAmount:"40000",commonAmount:"40000",basis:"synthetic",incurredDate:new Date("2026-10-31")}});
+   const after=await loadMonthEndReview(tx,c.id,"2026-10");const updated=Object.fromEntries(after.checks.map(r=>[r.key,r.count]));assert.equal(updated.vehicle,0);assert.equal(updated.vehicleCost,0);assert.equal(updated.recurringMissing,0);assert.equal(updated.recurring,1);assert.equal(updated.cash,0);
   }
   await assert.rejects(loadMonthEndReview(tx,company.id,"2026-13"));
   assert.equal(await tx.bankTransaction.count({where:{account:{companyId:company.id}}}),3);

@@ -63,7 +63,7 @@ export async function settleCashPlan(tx: Prisma.TransactionClient, data: FormDat
     throw new InputError("이미 사용된 요청입니다. 화면을 새로 열어 주세요.");
   }
   await assertPeriodsOpen(tx,processedDate);
-  const plan = await tx.cashPlan.findFirst({ where: { id: planId, companyId: COMPANY_ID }, include: { settlements: true, issuedNote: true, receivedNote: true, tradeDocument:true } });
+  const plan = await tx.cashPlan.findFirst({ where: { id: planId, companyId: COMPANY_ID }, include: { settlements: true, issuedNote: true, receivedNote: true, tradeDocument:true,vehicleExpense:true } });
   if (!plan || plan.version !== version || plan.completedAt) throw new InputError("이미 처리되었거나 변경된 내역입니다. 목록에서 다시 열어 주세요.");
   if (plan.tradeDocument) throw new InputError("매입·매출에 연결된 예정입니다. 매입·매출 화면에서 은행 연결을 처리하면 예산안에도 함께 반영됩니다.");
   if (plan.issuedNote) {
@@ -107,8 +107,9 @@ export async function settleCashPlan(tx: Prisma.TransactionClient, data: FormDat
 
 export async function voidCashSettlement(tx: Prisma.TransactionClient, data: FormData) {
   const id = text(data, "settlementId", "처리 내역", true, 50); const version = revision(data); const reason = text(data, "reason", "처리 취소 사유", true, 300);
-  const settlement = await tx.cashSettlement.findFirst({ where: { id, plan: { companyId: COMPANY_ID } }, include: { bankTransaction: true, plan: { include: { issuedNote: true, receivedNote: true, tradeDocument:true } } } });
+  const settlement = await tx.cashSettlement.findFirst({ where: { id, plan: { companyId: COMPANY_ID } }, include: { bankTransaction: true, plan: { include: { issuedNote: true, receivedNote: true, tradeDocument:true,vehicleExpense:true } } } });
   if (!settlement) throw new InputError("회사 처리 내역을 선택해 주세요."); if (settlement.voidedAt) return settlement.planId;
+  if (settlement.plan.vehicleExpense) throw new InputError("차량 화면에서 지급 대조를 먼저 해제한 뒤 실적을 취소하세요.");
   if (settlement.plan.tradeDocument) throw new InputError("매입·매출 화면에서 은행 연결을 해제하면 예산안 실적도 함께 취소됩니다.");
   if (settlement.plan.issuedNote && settlement.plan.issuedNote.status !== "SETTLED") throw new InputError("어음 상태가 변경되었습니다. 어음대장에서 확인해 주세요.");
   if (settlement.plan.receivedNote && !["COLLECTED", "DISCOUNTED"].includes(settlement.plan.receivedNote.status)) throw new InputError("수취어음 상태를 확인하세요. 할인 만기 확인을 완료했다면 먼저 만기 확인을 취소해야 합니다.");
