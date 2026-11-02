@@ -1,0 +1,12 @@
+CREATE TABLE "TradeCancellation" ("id" TEXT NOT NULL, "companyId" TEXT NOT NULL, "originalDocumentId" TEXT NOT NULL, "originalApproval" TEXT NOT NULL, "taxApprovalNumber" TEXT NOT NULL, "issuedDate" DATE NOT NULL, "supplyAmount" DECIMAL(20,0) NOT NULL, "taxAmount" DECIMAL(20,0) NOT NULL, "grossAmount" DECIMAL(20,0) NOT NULL, "fileId" TEXT NOT NULL, "sheet" TEXT NOT NULL, "sourceRow" INTEGER NOT NULL, "headers" JSONB NOT NULL, "cells" JSONB NOT NULL, "reason" TEXT NOT NULL, "requestId" TEXT NOT NULL, "fingerprint" TEXT NOT NULL, "documentVersionAfter" INTEGER NOT NULL, "version" INTEGER NOT NULL DEFAULT 0, "voidedAt" TIMESTAMP(3), "voidReason" TEXT, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "TradeCancellation_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "TradeCancellationChange" ("id" TEXT NOT NULL, "cancellationId" TEXT NOT NULL, "requestId" TEXT NOT NULL, "fingerprint" TEXT NOT NULL, "operation" TEXT NOT NULL, "reason" TEXT NOT NULL, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "TradeCancellationChange_pkey" PRIMARY KEY ("id"));
+CREATE UNIQUE INDEX "TradeCancellation_requestId_key" ON "TradeCancellation"("requestId");
+CREATE UNIQUE INDEX "TradeCancellationChange_requestId_key" ON "TradeCancellationChange"("requestId");
+CREATE INDEX "TradeCancellation_companyId_issuedDate_idx" ON "TradeCancellation"("companyId","issuedDate");
+CREATE UNIQUE INDEX "TradeCancellation_active_approval_key" ON "TradeCancellation"("companyId","taxApprovalNumber") WHERE "voidedAt" IS NULL;
+CREATE UNIQUE INDEX "TradeCancellation_active_original_key" ON "TradeCancellation"("originalDocumentId") WHERE "voidedAt" IS NULL;
+CREATE UNIQUE INDEX "TradeCancellation_active_source_key" ON "TradeCancellation"("fileId","sheet","sourceRow") WHERE "voidedAt" IS NULL;
+ALTER TABLE "TradeCancellation" ADD CONSTRAINT "TradeCancellation_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "TradeCancellation" ADD CONSTRAINT "TradeCancellation_originalDocumentId_fkey" FOREIGN KEY ("originalDocumentId") REFERENCES "TradeDocument"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "TradeCancellation" ADD CONSTRAINT "TradeCancellation_fileId_fkey" FOREIGN KEY ("fileId") REFERENCES "TradeWorkbookFile"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "TradeCancellationChange" ADD CONSTRAINT "TradeCancellationChange_cancellationId_fkey" FOREIGN KEY ("cancellationId") REFERENCES "TradeCancellation"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

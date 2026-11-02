@@ -1,3 +1,4 @@
+import {assertNoCancellationApproval} from "./trade-approval-guard";
 import {normalizeTaxApproval} from "./trade-identifiers";
 import {invalidateSourceCosts} from "./source-cost-invalidation";
 import {assertBankNotVehicleMatched} from "./vehicle-cash";
@@ -54,7 +55,9 @@ export async function saveTradeDocument(tx: Prisma.TransactionClient, data: Form
   if (replay) { if (replay.document.companyId !== COMPANY_ID || replay.fingerprint !== digest) throw new InputError("다른 내용으로 사용된 요청입니다. 화면을 다시 열어 주세요."); return replay.documentId; }
   const previous = id ? await tx.tradeDocument.findFirst({ where: { id, companyId: COMPANY_ID } }) : null;
   if (id && (!previous || previous.voidedAt)) throw new InputError("사용 중인 회사 문서를 선택해 주세요.");
+  await assertPeriodsOpen(tx,issuedDate,previous?.issuedDate);
   const effectiveApproval=taxApprovalNumber===undefined?previous?.taxApprovalNumber:taxApprovalNumber;
+  if(effectiveApproval)await assertNoCancellationApproval(tx,effectiveApproval);
   if(effectiveApproval&&evidence!=="TAX_INVOICE")throw new InputError("전자 승인번호는 세금계산서 원본에만 입력하세요. 증빙 종류와 번호를 확인하세요.");
   if(effectiveApproval&&await tx.tradeDocument.findFirst({where:{companyId:COMPANY_ID,taxApprovalNumber:effectiveApproval,voidedAt:null,...(id?{id:{not:id}}:{})}}))throw new InputError("같은 전자 승인번호의 활성 문서가 있습니다. 기존 매입·매출을 확인하세요.");
   if (previous && previous.settledAmount.toFixed(0) !== "0" && (previous.grossAmount.toFixed(0) !== values.grossAmount || previous.partnerId !== partnerId || previous.projectId !== projectId)) throw new InputError("금액·거래처·현장을 바꾸려면 은행 연결을 먼저 해제해 주세요.");

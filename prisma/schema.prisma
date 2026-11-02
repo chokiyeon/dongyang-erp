@@ -8,6 +8,7 @@ datasource db {
 }
 
 model Company {
+  tradeCancellations TradeCancellation[]
   tradeWorkbookFiles TradeWorkbookFile[]
   periodLocks AccountingPeriodLock[]
   bankTransfers BankTransferPair[]
@@ -408,6 +409,7 @@ enum InputVatReview {
   NONDEDUCTIBLE
 }
 model TradeDocument {
+  cancellations TradeCancellation[]
   workbookSource TradeWorkbookSource?
   // Active approval numbers have a partial unique index in SQL. Cancelled history is retained.
   taxApprovalNumber String?
@@ -1186,6 +1188,7 @@ model AccountingPeriodLock {
 }
 
 model TradeWorkbookFile {
+  cancellations TradeCancellation[]
   id String @id @default(cuid())
   companyId String
   company Company @relation(fields:[companyId],references:[id],onDelete:Restrict)
@@ -1219,6 +1222,46 @@ model PartnerIdentityChange {
   partner Partner @relation(fields:[partnerId],references:[id],onDelete:Restrict)
   previous String?
   next String?
+  reason String
+  createdAt DateTime @default(now())
+}
+
+model TradeCancellation {
+  id String @id @default(cuid())
+  companyId String
+  company Company @relation(fields:[companyId],references:[id],onDelete:Restrict)
+  originalDocumentId String
+  originalDocument TradeDocument @relation(fields:[originalDocumentId],references:[id],onDelete:Restrict)
+  originalApproval String
+  taxApprovalNumber String
+  issuedDate DateTime @db.Date
+  supplyAmount Decimal @db.Decimal(20,0)
+  taxAmount Decimal @db.Decimal(20,0)
+  grossAmount Decimal @db.Decimal(20,0)
+  fileId String
+  file TradeWorkbookFile @relation(fields:[fileId],references:[id],onDelete:Restrict)
+  sheet String
+  sourceRow Int
+  headers Json
+  cells Json
+  reason String
+  requestId String @unique
+  fingerprint String
+  documentVersionAfter Int
+  version Int @default(0)
+  voidedAt DateTime?
+  voidReason String?
+  createdAt DateTime @default(now())
+  changes TradeCancellationChange[]
+  @@index([companyId,issuedDate])
+}
+model TradeCancellationChange {
+  id String @id @default(cuid())
+  cancellationId String
+  cancellation TradeCancellation @relation(fields:[cancellationId],references:[id],onDelete:Restrict)
+  requestId String @unique
+  fingerprint String
+  operation String
   reason String
   createdAt DateTime @default(now())
 }

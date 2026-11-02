@@ -1,6 +1,6 @@
 import {normalizeBusinessNumber} from "./business-number";
 import type {TradeWorkbookRow} from './trade-workbook-review';
-export type ExistingTrade={id:string;reference:string;approval:string;kind:'SALE'|'PURCHASE';date:string;partner:string;businessNumber?:string|null;supply:string;tax:string;gross:string;voided:boolean};
+export type ExistingTrade={href?:string;recordType?:"CANCELLATION";id:string;reference:string;approval:string;kind:'SALE'|'PURCHASE';date:string;partner:string;businessNumber?:string|null;supply:string;tax:string;gross:string;voided:boolean};
 export type TradeWorkbookMatch={status:'NO_APPROVAL'|'UNREGISTERED'|'MATCH'|'CONFLICT'|'VOID_ONLY';differences:string[];documents:ExistingTrade[]};
 const name=(v:string)=>v.normalize('NFKC').replace(/\s/g,'');
 export function matchTradeWorkbookRow(row:TradeWorkbookRow,documents:ExistingTrade[]):TradeWorkbookMatch{
