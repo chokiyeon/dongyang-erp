@@ -125,6 +125,8 @@ enum PartnerType {
 }
 
 model Partner {
+  businessNumber String?
+  identityChanges PartnerIdentityChange[]
   paymentTerm PaymentTerm @default(MANUAL)
   paymentMethod PaymentMethod @default(UNCONFIRMED)
   payeeBank String?
@@ -152,6 +154,7 @@ model Partner {
   updatedAt DateTime    @updatedAt
 
   @@unique([companyId, code])
+  @@index([companyId,businessNumber])
 }
 
 enum CashDirection {
@@ -1208,4 +1211,14 @@ model TradeWorkbookSource {
   reason String
   createdAt DateTime @default(now())
   @@unique([fileId,sheet,sourceRow])
+}
+
+model PartnerIdentityChange {
+  id String @id @default(cuid())
+  partnerId String
+  partner Partner @relation(fields:[partnerId],references:[id],onDelete:Restrict)
+  previous String?
+  next String?
+  reason String
+  createdAt DateTime @default(now())
 }

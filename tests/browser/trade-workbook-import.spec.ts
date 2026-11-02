@@ -9,7 +9,7 @@ test('확인한 원본 행을 한 번 이관하고 엑셀 양식·원본 다운�
  test.setTimeout(90000);const db=getDb(),tag=randomUUID().slice(0,8),reference=`이관-${tag}`,approval=`IMPORT${tag.toUpperCase()}`;let partnerId='',documentId='',fileId='',packageId='';
  const anonymous=await browser.newContext();try{expect((await anonymous.request.post('/api/trades/workbook-import',{data:{}})).status()).toBe(401);}finally{await anonymous.close();}
  try{
- partnerId=(await db.partner.create({data:{companyId:COMPANY_ID,code:reference,name:`이관 합성업체 ${tag}`,type:'SUPPLIER'}})).id;
+ partnerId=(await db.partner.create({data:{companyId:COMPANY_ID,code:reference,name:`이관 합성업체 ${tag}`,type:'SUPPLIER',businessNumber:'0012345678'}})).id;
  const book=new ExcelJS.Workbook(),sheet=book.addWorksheet('매 입'),headers=Array(43).fill('');headers[0]='작성일자';headers[1]='승인번호';headers[14]='합계금액';headers[15]='공급가액';headers[16]='세액';sheet.addRow(headers);const raw=Array(43).fill('');raw[0]='2026-10-30';raw[1]=approval;raw[2]='2026-10-30';raw[4]='0012345678';raw[6]=`이관 합성업체 ${tag}`;raw[14]='1100';raw[15]='1000';raw[16]='100';raw[26]=`이관 자재 ${tag}`;raw[33]='2026-10-31';raw[42]='원본 메모';sheet.addRow(raw);const bytes=Buffer.from(await book.xlsx.writeBuffer());
  await page.goto('/login');await page.getByLabel('관리자 비밀번호').fill(process.env.ERP_ADMIN_PASSWORD!);await page.getByRole('button',{name:'로그인',exact:true}).click();await expect(page).not.toHaveURL(/\/login$/);
  expect((await page.context().request.post('/api/trades/workbook-import',{headers:{origin:'https://other.invalid'},data:{}})).status()).toBe(403);

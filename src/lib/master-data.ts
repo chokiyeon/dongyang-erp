@@ -1,3 +1,4 @@
+import {normalizeBusinessNumber} from "./business-number";
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 import { PAYMENT_TERMS, PAYMENT_METHODS, normalizePayeeAccount } from "./payment-terms";
 import { COMPANY_ID } from "./constants";
@@ -19,6 +20,9 @@ export async function saveMaster(db: Store, kind: Kind, data: FormData): Promise
     const code = text(data, "code", "거래처 코드", true, 30).toUpperCase();
     const previous = id ? await db.partner.findFirst({where:{id,companyId:COMPANY_ID}}) : null;
     if (id && !previous) throw new InputError("회사 거래처를 선택하세요.");
+    const businessNumber=data.has("businessNumber")?normalizeBusinessNumber(text(data,"businessNumber","사업자등록번호",false,30)):previous?.businessNumber??null;
+    const identityChanged=(previous?.businessNumber??null)!==businessNumber;
+    const identityReason=identityChanged?text(data,"identityReason","사업자번호 등록·변경 사유",true,300):"";
     const hasPaymentData = ["paymentTerm","paymentMethod","payeeBank","payeeAccount","payeeHolder"].some(key=>data.has(key));
     const payeeBank = hasPaymentData ? text(data,"payeeBank","송금 은행",false,50)||null : previous?.payeeBank??null;
     const rawAccount = hasPaymentData ? text(data,"payeeAccount","송금 계좌번호",false,40) : previous?.payeeAccount??"";
@@ -26,18 +30,19 @@ export async function saveMaster(db: Store, kind: Kind, data: FormData): Promise
     const payeeHolder = hasPaymentData ? text(data,"payeeHolder","예금주",false,100)||null : previous?.payeeHolder??null;
     if ((payeeBank||payeeAccount||payeeHolder)&&!(payeeBank&&payeeAccount&&payeeHolder)) throw new InputError("송금 은행·계좌번호·예금주를 모두 입력하세요.");
     const accountChanged=previous?.payeeBank!==payeeBank||previous?.payeeAccount!==payeeAccount||previous?.payeeHolder!==payeeHolder;
-    const payeeVerifiedAt = !hasPaymentData ? previous?.payeeVerifiedAt??null : payeeBank&&data.get("payeeConfirmed")==="on" ? (!accountChanged&&previous?.payeeVerifiedAt?previous.payeeVerifiedAt:new Date()) : null;
+    const payeeVerifiedAt = identityChanged&&previous?null:!hasPaymentData ? previous?.payeeVerifiedAt??null : payeeBank&&data.get("payeeConfirmed")==="on" ? (!accountChanged&&previous?.payeeVerifiedAt?previous.payeeVerifiedAt:new Date()) : null;
     const paymentTerm=hasPaymentData?choice(text(data,"paymentTerm","지급 조건"),Object.keys(PAYMENT_TERMS) as (keyof typeof PAYMENT_TERMS)[],"지급 조건"):previous?.paymentTerm??"MANUAL";
     const paymentMethod=hasPaymentData?choice(text(data,"paymentMethod","기본 지급방법"),Object.keys(PAYMENT_METHODS) as (keyof typeof PAYMENT_METHODS)[],"기본 지급방법"):previous?.paymentMethod??"UNCONFIRMED";
-    const values = { name, code, active, type: choice(text(data, "type", "거래처 구분"), Object.keys(PARTNER_LABELS) as (keyof typeof PARTNER_LABELS)[], "거래처 구분"), contact: text(data, "contact", "담당자", false, 100) || null, note: text(data, "note", "비고", false, 500) || null,paymentTerm,paymentMethod,payeeBank,payeeAccount,payeeHolder,payeeVerifiedAt };
+    const values = { businessNumber,name, code, active, type: choice(text(data, "type", "거래처 구분"), Object.keys(PARTNER_LABELS) as (keyof typeof PARTNER_LABELS)[], "거래처 구분"), contact: text(data, "contact", "담당자", false, 100) || null, note: text(data, "note", "비고", false, 500) || null,paymentTerm,paymentMethod,payeeBank,payeeAccount,payeeHolder,payeeVerifiedAt };
     const before={paymentTerm:previous?.paymentTerm??"MANUAL",paymentMethod:previous?.paymentMethod??"UNCONFIRMED",payeeBank:previous?.payeeBank??null,payeeAccount:previous?.payeeAccount??null,payeeHolder:previous?.payeeHolder??null,verified:previous?.payeeVerifiedAt?.toISOString()??null};
     const after={paymentTerm,paymentMethod,payeeBank,payeeAccount,payeeHolder,verified:payeeVerifiedAt?.toISOString()??null};
-    const paymentChanged=hasPaymentData&&JSON.stringify(before)!==JSON.stringify(after);
-    const paymentReason=paymentChanged?text(data,"paymentReason","송금정보 변경 사유",true,300):"";
+    const paymentChanged=(hasPaymentData||identityChanged)&&JSON.stringify(before)!==JSON.stringify(after);
+    const paymentReason=paymentChanged?(identityChanged&&identityReason?identityReason:text(data,"paymentReason","송금정보 변경 사유",true,300)):"";
     let partnerId=id;
     if (id) count = (await db.partner.updateMany({ where: { id, companyId: COMPANY_ID, version }, data: { ...values, version: { increment: 1 } } })).count;
     else partnerId=(await db.partner.create({ data: { ...values, companyId: COMPANY_ID } })).id;
     if(count!==1)throw new InputError("다른 화면에서 거래처가 변경되었습니다. 다시 조회하세요.");
+    if(identityChanged)await db.partnerIdentityChange.create({data:{partnerId,previous:previous?.businessNumber??null,next:businessNumber,reason:identityReason}});
     if(paymentChanged)await db.partnerPaymentChange.create({data:{partnerId,previous:before,next:after,reason:paymentReason}});
   } else if (kind === "accounts") {
     const values = { label: name, active, accountingCode: null, bankName: choice(text(data, "bankName", "은행"), BANKS, "은행"), overdraftLimit: amount(text(data, "overdraftLimit", "마이너스 한도", false, 20), "마이너스 한도") };
