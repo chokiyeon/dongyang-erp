@@ -28,3 +28,37 @@ test("동시 출고는 재고를 초과하지 않는다",async()=>{
  const db=getDb();let item="";let location="";let companyCreated=false;try{if(!await db.company.findUnique({where:{id:COMPANY_ID}})){await db.company.create({data:{id:COMPANY_ID,name:"동시 재고 검증"}});companyCreated=true;}item=(await db.$transaction(tx=>saveStock(tx,"item",request({code:randomUUID().slice(0,20),name:"동시 검증 자재",unit:"EA",active:"on"})))).materialId!;location=(await db.$transaction(tx=>saveStock(tx,"location",request({code:randomUUID().slice(0,20),name:"동시 검증 창고",kind:"WAREHOUSE",active:"on"})))).locationId!;await db.$transaction(tx=>saveStock(tx,"move",request({materialId:item,reference:"OPEN",kind:"OPENING",movedDate:"2026-10-01",toId:location,quantity:"1",sourceNote:"기초 1개"})));const results=await Promise.allSettled(["A","B"].map(reference=>db.$transaction(tx=>saveStock(tx,"move",request({materialId:item,reference,kind:"OUT",movedDate:"2026-10-02",fromId:location,quantity:"1",sourceNote:"동시 출고"})))));assert.equal(results.filter(r=>r.status==="fulfilled").length,1);assert.equal((await stockOverview(db)).balances.find(b=>b.item.id===item)?.quantity,0n);
  }finally{if(item){await db.stockChange.deleteMany({where:{materialId:item}});await db.stockMovement.deleteMany({where:{materialId:item}});await db.materialItem.delete({where:{id:item}});}if(location){await db.stockLocationChange.deleteMany({where:{locationId:location}});await db.stockLocation.delete({where:{id:location}});}if(companyCreated)await db.company.delete({where:{id:COMPANY_ID}});await db.$disconnect();}
 });
+test("먼저 받은 명세서 입고는 중복 재고 없이 계산서에 연결·정정·해제하고 한도와 마감을 지킨다",async()=>{
+ const db=getDb(),rollback=new Error("rollback");
+ try{await assert.rejects(db.$transaction(async tx=>{
+  await tx.company.upsert({where:{id:COMPANY_ID},create:{id:COMPANY_ID,name:"검증 회사"},update:{}});
+  const item=(await saveStock(tx,"item",request({code:randomUUID().slice(0,20),name:"사후 연결 자재",unit:"EA",active:"on"}))).materialId!;
+  const location=(await saveStock(tx,"location",request({code:randomUUID().slice(0,20),name:"사후 연결 창고",kind:"WAREHOUSE",active:"on"}))).locationId!;
+  const partner=await tx.partner.create({data:{companyId:COMPANY_ID,code:randomUUID(),name:"계산서 검증 공급자",type:"SUPPLIER"}});
+  const makeDoc=(supplyAmount:string)=>tx.tradeDocument.create({data:{companyId:COMPANY_ID,kind:"PURCHASE",reference:randomUUID(),title:"사후 계산서",partnerId:partner.id,issuedDate:new Date("2026-10-01"),supplyAmount,taxAmount:"0",grossAmount:supplyAmount,taxKind:"EXEMPT",evidence:"TAX_INVOICE",note:""}});
+  const a=await makeDoc("1000"),b=await makeDoc("1000"),small=await makeDoc("999");
+  await saveStock(tx,"move",request({materialId:item,reference:"LATE",kind:"IN",movedDate:"2026-10-01",toId:location,quantity:"10",unitPrice:"100",supplyAmount:"1000",sourceNote:"계산서 수령 전 명세서"}));
+  const original=await tx.stockMovement.findUniqueOrThrow({where:{materialId_reference:{materialId:item,reference:"LATE"}}});
+  const form=async(documentId:string)=>request({materialId:item,movementId:original.id,version:String((await tx.materialItem.findUniqueOrThrow({where:{id:item}})).version),documentId,linkConfirmed:"on"});
+  const unchecked=await form(a.id);unchecked.delete("linkConfirmed");await assert.rejects(saveStock(tx,"link",unchecked),/원본과 확인/);
+  const other=await tx.company.create({data:{name:"외부회사 연결 거부 검증"}});
+  const foreignPartner=await tx.partner.create({data:{companyId:other.id,code:randomUUID(),name:"외부 공급자",type:"SUPPLIER"}});
+  const foreign=await tx.tradeDocument.create({data:{companyId:other.id,kind:"PURCHASE",reference:randomUUID(),title:"외부 계산서",partnerId:foreignPartner.id,issuedDate:new Date("2026-10-01"),supplyAmount:"1000",taxAmount:"0",grossAmount:"1000",taxKind:"EXEMPT",evidence:"TAX_INVOICE",note:""}});
+  await assert.rejects(saveStock(tx,"link",await form(foreign.id)),/회사 매입/);
+  const link=await form(a.id);await saveStock(tx,"link",link);await saveStock(tx,"link",link);
+  assert.equal(await tx.stockMovement.count({where:{materialId:item}}),1);
+  await assert.rejects(saveStock(tx,"link",await form(small.id)),/초과/);
+  // Expected InputError is caught within this test transaction; the production action rolls it back.
+  const stale=await form(b.id);stale.set("version","0");await assert.rejects(saveStock(tx,"link",stale),/변경/);
+  await saveStock(tx,"link",await form(b.id));
+  assert.equal((await tx.stockMovement.findUniqueOrThrow({where:{id:original.id}})).documentId,b.id);
+  await saveStock(tx,"link",await form(""));
+  const current=await tx.stockMovement.findUniqueOrThrow({where:{id:original.id}});
+  assert.equal(current.documentId,null);assert.equal(current.quantity.toFixed(4),original.quantity.toFixed(4));assert.equal(current.unitPrice?.toFixed(4),original.unitPrice?.toFixed(4));assert.equal(current.supplyAmount?.toFixed(0),"1000");assert.equal(current.movedDate.getTime(),original.movedDate.getTime());
+  assert.equal((await stockOverview(tx)).balances.find(r=>r.item.id===item)?.quantity,100000n);
+  assert.equal(await tx.stockChange.count({where:{materialId:item,operation:"link"}}),3);
+  await tx.accountingPeriodLock.create({data:{companyId:COMPANY_ID,period:"2026-10",locked:true,packageId:"stock-test",digest:"stock-test"}});
+  await assert.rejects(saveStock(tx,"link",await form(a.id)),/마감/);
+  throw rollback;
+ },{timeout:20000}),e=>e===rollback);}finally{await db.$disconnect();}
+});

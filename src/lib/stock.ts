@@ -6,7 +6,7 @@ import {InputError,text,date,amount,revision,choice} from "./validation";
 import {koreanToday} from "./forecast";
 import {STOCK_KINDS,stockQuantity,stockBalances} from "./stock-types";
 const json=(v:unknown):Prisma.InputJsonValue=>JSON.parse(JSON.stringify(v));
-export async function saveStock(tx:Prisma.TransactionClient,op:"item"|"location"|"move"|"void",d:FormData){
+export async function saveStock(tx:Prisma.TransactionClient,op:"item"|"location"|"move"|"void"|"link",d:FormData){
  const requestId=text(d,"requestId","요청",true,50);const reason=text(d,"reason","변경 사유",true,300);if(!/^[a-f0-9-]{36}$/i.test(requestId))throw new InputError("화면을 다시 열어 주세요.");const fingerprint=createHash("sha256").update(JSON.stringify({op,values:Object.fromEntries([...d.entries()].sort(([a],[b])=>a.localeCompare(b)))})).digest("hex");
  if(op==="location"){
   const replay=await tx.stockLocationChange.findUnique({where:{requestId},include:{location:true}});if(replay){if(replay.location.companyId!==COMPANY_ID||replay.fingerprint!==fingerprint)throw new InputError("다른 내용에 사용한 요청입니다.");return{locationId:replay.locationId};}
@@ -19,7 +19,25 @@ export async function saveStock(tx:Prisma.TransactionClient,op:"item"|"location"
   if(item&&item.version!==revision(d))throw new InputError("품목이 변경되었습니다. 다시 조회하세요.");const values={code:text(d,"code","품목 코드",true,30).toUpperCase(),name:text(d,"name","자재명",true,100),unit:text(d,"unit","관리 단위",true,20),active:d.get("active")==="on"};if(item&&item.unit!==values.unit&&await tx.stockMovement.count({where:{materialId:id}}))throw new InputError("입출고 이력이 있는 품목의 관리 단위는 변경할 수 없습니다.");previous=item??{};if(item){await lock();item=await tx.materialItem.update({where:{id},data:values});}else item=await tx.materialItem.create({data:{...values,companyId:COMPANY_ID}});next=item;
  }else{
   const rows=await tx.stockMovement.findMany({where:{materialId:id,voidedAt:null},orderBy:[{movedDate:"asc"},{sequence:"asc"}]});
-  if(op==="void"){
+  if(op==="link"){
+   const movementId=text(d,"movementId","입출고 내역",true,50);
+   const old=await tx.stockMovement.findFirst({where:{id:movementId,materialId:id,voidedAt:null,kind:"IN"}});
+   if(!old||!old.supplyAmount)throw new InputError("공급가액이 있는 매입 입고를 선택하세요.");
+   if(item!.version!==revision(d))throw new InputError("입출고 자료가 변경되었습니다. 다시 조회하세요.");
+   const documentId=text(d,"documentId","연결 매입 원본",false,50)||null;
+   if(documentId===old.documentId)throw new InputError("변경할 매입 원본을 선택하세요.");
+   if(d.get("linkConfirmed")!=="on")throw new InputError("거래처·품목·공급가액과 현장 배부를 원본과 확인하세요.");
+   await assertPeriodsOpen(tx,old.movedDate);
+   await lock();
+   const docs=await tx.tradeDocument.findMany({where:{id:{in:[old.documentId,documentId].filter((v):v is string=>Boolean(v))},companyId:COMPANY_ID,kind:"PURCHASE",voidedAt:null},orderBy:{id:"asc"}});
+   for(const docId of[old.documentId,documentId].filter(Boolean))if(!docs.some(doc=>doc.id===docId))throw new InputError("사용 중인 회사 매입 문서를 선택하세요.");
+   for(const doc of docs){
+    await assertPeriodsOpen(tx,doc.issuedDate);
+    if(doc.id===documentId){const used=await tx.stockMovement.aggregate({where:{documentId,voidedAt:null,id:{not:old.id}},_sum:{supplyAmount:true}});if(BigInt(used._sum.supplyAmount?.toFixed(0)??"0")+BigInt(old.supplyAmount.toFixed(0))>BigInt(doc.supplyAmount.toFixed(0)))throw new InputError("연결한 품목 공급가액 합계가 매입 원본 공급가액을 초과합니다.");}
+    const changed=await tx.tradeDocument.updateMany({where:{id:doc.id,version:doc.version,voidedAt:null},data:{version:{increment:1}}});if(changed.count!==1)throw new InputError("매입 연결이 변경되었습니다. 다시 조회하세요.");
+   }
+   previous=old;next=await tx.stockMovement.update({where:{id:old.id},data:{documentId}});
+  }else if(op==="void"){
    const movementId=text(d,"movementId","입출고 내역",true,50);const old=await tx.stockMovement.findFirst({where:{id:movementId,materialId:id}});if(!old||old.voidedAt)throw new InputError("취소할 입출고 내역을 확인하세요.");await assertPeriodsOpen(tx,old.movedDate);stockBalances(rows.filter(r=>r.id!==old.id));await lock();await tx.stockMovement.update({where:{id:old.id},data:{voidedAt:new Date()}});previous=old;next={id:old.id,voided:true};
   }else{
    if(!item!.active)throw new InputError("사용 중인 품목을 선택하세요.");const kind=choice(text(d,"kind","입출고 구분",true),Object.keys(STOCK_KINDS) as (keyof typeof STOCK_KINDS)[],"입출고 구분");const movedDate=date(text(d,"movedDate","입출고일",true),"입출고일")!;if(movedDate.toISOString().slice(0,10)>koreanToday())throw new InputError("실제 입출고일은 오늘 이후일 수 없습니다.");await assertPeriodsOpen(tx,movedDate);const quantity=text(d,"quantity","수량",true,21);if(stockQuantity(quantity)<=0n)throw new InputError("수량은 0보다 커야 합니다.");const fromId=text(d,"fromId","출발 장소",false,50)||null;const toId=text(d,"toId","도착 장소",false,50)||null;if((kind==="IN"||kind==="OPENING")&&(!toId||fromId)||kind==="OUT"&&(!fromId||toId)||kind==="TRANSFER"&&(!fromId||!toId||fromId===toId))throw new InputError("입고는 도착 장소, 출고는 출발 장소, 이동은 서로 다른 두 장소를 지정하세요.");for(const loc of[fromId,toId].filter(Boolean))if(!await tx.stockLocation.findFirst({where:{id:loc!,companyId:COMPANY_ID,active:true}}))throw new InputError("사용 중인 회사 재고 장소를 선택하세요.");
