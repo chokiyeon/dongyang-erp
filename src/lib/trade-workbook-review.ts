@@ -1,3 +1,4 @@
+import {TRADE_MATCH_LABELS,type TradeWorkbookMatch} from "./trade-workbook-match";
 import type {Workbook,Cell} from "exceljs";
 import {spreadsheetValue,spreadsheetCellIssue,spreadsheetDate,spreadsheetMoney} from "./bank-import";
 import {normalizeTaxApproval} from "./trade-identifiers";
@@ -36,11 +37,11 @@ export function reviewTradeWorkbook(book:Workbook,today:string):TradeWorkbookRev
  }
  return result;
 }
-export async function buildTradeWorkbookReview(review:TradeWorkbookReview,fileHash:string){
+export async function buildTradeWorkbookReview(review:TradeWorkbookReview,fileHash:string,comparison?:{matches:Record<string,TradeWorkbookMatch>;checkedAt:string}){
  const excel=await import("exceljs"),book=new (excel.Workbook??excel.default.Workbook)();
- const info=book.addWorksheet("안내");info.addRow(["용도","검토 전용 · ERP 등록/수금/지급 처리 아님"]);info.addRow(["원본 SHA256",fileHash]);info.addRow(["상태","후보도 거래처·공사·수정 원본·기존 ERP 중복을 추가 확인해야 합니다."]);
- const summary=book.addWorksheet("검토 결과");summary.addRow(["시트","원본 행","구분","작성일자","승인번호","거래처","합계금액","공급가액","세액","상태","확인 사유","중복 원본"]);
- for(const r of review.rows)summary.addRow([r.sheet,String(r.row),r.kind==="SALE"?"매출":"매입",r.date,r.approval,r.partner,r.gross,r.supply,r.tax,r.status,r.reasons.join(" / "),r.duplicateOf??""]);
+ const info=book.addWorksheet("안내");info.addRow(["용도","검토 전용 · ERP 등록/수금/지급 처리 아님"]);info.addRow(["원본 SHA256",fileHash]);info.addRow(["기존 ERP 대조 시점",comparison?.checkedAt||"미대조"]);info.addRow(["상태","후보도 거래처·공사·수정 원본·기존 ERP 중복을 추가 확인해야 합니다."]);
+ const summary=book.addWorksheet("검토 결과");summary.addRow(["시트","원본 행","구분","작성일자","승인번호","거래처","합계금액","공급가액","세액","상태","확인 사유","중복 원본","기존 ERP 대조","ERP 차이 항목","ERP 문서"]);
+ for(const r of review.rows)summary.addRow([r.sheet,String(r.row),r.kind==="SALE"?"매출":"매입",r.date,r.approval,r.partner,r.gross,r.supply,r.tax,r.status,r.reasons.join(" / "),r.duplicateOf??"",comparison?.matches[`${r.sheet}:${r.row}`]?TRADE_MATCH_LABELS[comparison.matches[`${r.sheet}:${r.row}`].status]:"미대조",comparison?.matches[`${r.sheet}:${r.row}`]?.differences.join(", ")??"",comparison?.matches[`${r.sheet}:${r.row}`]?.documents.map(d=>`${d.reference}${d.voided?" (취소)":""}`).join(", ")??""]);
  for(const [index,s]of review.sheets.entries()){const sheet=book.addWorksheet(`원본_${index+1}`);sheet.addRow(["원본 시트",s.name]);sheet.addRow(["원본 행",...s.headers]);for(const r of s.sourceRows)sheet.addRow([String(r.row),...r.values]);}
  for(const sheet of book.worksheets){sheet.views=[{state:"frozen",ySplit:sheet===summary?1:2}];sheet.eachRow(row=>row.eachCell(cell=>{if(typeof cell.value==="string")cell.numFmt="@";}));}
  return book;
