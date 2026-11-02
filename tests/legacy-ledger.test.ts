@@ -68,3 +68,13 @@ test("D열 내용과 E열 추가 내용을 모두 보존하며 D열만 있는 �
   assert.equal(review.rows.at(-2)?.description, "D열 거래 · E열 메모");
   assert.equal(review.rows.at(-1)?.description, "D열에만 있는 거래");
 });
+
+test("거래처·내역이 분리된 단일 입금 형식은 열을 검증하고 은행·차입 여부를 추정하지 않는다",()=>{
+ const book=new ExcelJS.Workbook(),sheet=book.addWorksheet("2020");sheet.addRow(["날짜","구분","","거래처","내역","입금","출금","잔액","비고"]);
+ sheet.addRow(["2020-01-02","옛 차입 구분","전북","합성 업체","단일 입금",12345,0,100000]);sheet.addRow(["2020-01-03","00123","하나","합성 자재","자재 지급",0,2345,97655]);sheet.addRow(["2020-01-04","참고","", "미기재 계좌","확인 필요",0,500,97155]);sheet.addRow(["2020-01-05","참고","전북","오류 수식","원본 확인",{formula:"SUM(A1:A2)"},0,0]);
+ const result=analyzeLegacyLedger(book,"2020","2026-11-02");assert.equal(result.layout,"SINGLE_INCOME");assert.equal(result.rows.length,2);assert.equal(result.rows[0].amount,"12345");assert.equal(result.rows[0].incomingType,"GENERAL");assert.equal(result.rows[0].description,"합성 업체 · 단일 입금");assert.equal(result.rows[1].direction,"OUT");assert.equal(result.rows[1].amount,"2345");assert.equal(result.rows[1].ledgerBalance,"97655");assert.equal(result.rows[1].legacyCategory,"00123");assert.equal(result.issues.length,2);assert.equal(result.issues[1].rawIncoming,"=SUM(A1:A2)");assert.equal(result.issues[1].rawLoan,"");
+ sheet.getCell("D1").value="다른 열";assert.throws(()=>analyzeLegacyLedger(book,"2020","2026-11-02"),/형식/);
+});
+test("병합된 빈 날짜 셀이 있어도 시트 전체를 중단하지 않고 원본 행별 확인 목록을 만든다",()=>{
+ const book=new ExcelJS.Workbook(),sheet=book.addWorksheet("2020");sheet.addRow(["날짜","구분","","거래처","내역","입금","출금","잔액"]);sheet.addRow([null,"참고","전북","업체","첫 빈 날짜",0,10,100]);sheet.addRow([null,"참고","전북","업체","병합 빈 날짜",0,20,80]);sheet.mergeCells("A2:A3");const review=analyzeLegacyLedger(book,"2020","2026-11-02");assert.equal(review.rows.length,0);assert.equal(review.issues.length,2);assert.equal(review.issues[1].sourceRow,3);assert.equal(review.issues[1].rawDate,"");assert.match(review.issues[1].reason,/거래일이 비어/);
+});

@@ -207,6 +207,7 @@ test("로그인·회사·거래처·현장·계좌 등록과 수정", async ({ p
     oldsheet.addRow([importDate, "5 차입금", "하나", null, `LG-${tag} 이전 장부 입금`, 20000, 0, 0, 1007655]);
     oldsheet.addRow([null, null, "전북", null, "날짜 확인 필요", 0, 0, 100]);
     oldsheet.addRow([importDate, null, "전북", null, "금액 확인 필요", 100, 100, 0]);
+    const single=oldbook.addWorksheet("2020");single.addRow(["날짜","구분","","거래처","내역","입금","출금","잔액"]);single.addRow(["2020-01-02","옛 구분","전북","합성 업체",`SINGLE-${tag}`,500,0,500]);single.addRow([null,"참고","전북","합성 업체","단일형 날짜 확인",0,100,400]);
     await expect(page.getByLabel("기존 장부 파일")).toBeEnabled();
     await page.getByLabel("기존 장부 파일").setInputFiles({ name: "기존장부.xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: Buffer.from(new Uint8Array(await oldbook.xlsx.writeBuffer())) });
     await expect(page.getByRole("row").filter({ hasText: `LG-${tag} 이전 장부 출금` })).toContainText("104 본(경비)");
@@ -228,6 +229,7 @@ test("로그인·회사·거래처·현장·계좌 등록과 수정", async ({ p
     const legacy = await db.bankTransaction.findFirstOrThrow({ where: { description: `LG-${tag} 이전 장부 출금` } });
     expect(legacy.bankBalance).toBe(null); expect(legacy.legacyLedgerBalance?.toFixed(0)).toBe("987655"); expect(legacy.accountingCodeId).toBe(null); expect(legacy.legacyRow).toBe(4);
     expect(await db.bankTransaction.count({ where: { description: { startsWith: `LG-${tag}` } } })).toBe(2);
+    await page.getByRole("combobox",{name:"가져올 시트",exact:true}).selectOption("2020");await expect(page.getByRole("note")).toContainText("단일 입금 열 형식");await expect(page.getByRole("row").filter({hasText:`SINGLE-${tag}`})).toContainText("500원");await expect(page.getByRole("row").filter({hasText:"단일형 날짜 확인"})).toContainText("거래일이 비어");expect(await db.bankTransaction.count({where:{description:{contains:`SINGLE-${tag}`}}})).toBe(0);
     await page.goto("/");
     await expect(page.getByRole("link", { name: `검증 공사 ${tag}`, exact: true })).toBeVisible();
     if (!companyExisted) await page.screenshot({ path: "/tmp/dongyang-erp-redesign.png", fullPage: true });
