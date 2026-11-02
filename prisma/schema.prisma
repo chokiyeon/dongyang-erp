@@ -8,6 +8,7 @@ datasource db {
 }
 
 model Company {
+  tradeWorkbookFiles TradeWorkbookFile[]
   periodLocks AccountingPeriodLock[]
   bankTransfers BankTransferPair[]
   transferApprovals TransferApproval[]
@@ -404,6 +405,7 @@ enum InputVatReview {
   NONDEDUCTIBLE
 }
 model TradeDocument {
+  workbookSource TradeWorkbookSource?
   // Active approval numbers have a partial unique index in SQL. Cancelled history is retained.
   taxApprovalNumber String?
   cashPlanId String? @unique
@@ -1178,4 +1180,32 @@ model AccountingPeriodLock {
  version Int @default(0)
  lockedAt DateTime @default(now())
  @@unique([companyId,period])
+}
+
+model TradeWorkbookFile {
+  id String @id @default(cuid())
+  companyId String
+  company Company @relation(fields:[companyId],references:[id],onDelete:Restrict)
+  checksum String
+  fileName String
+  content Bytes
+  createdAt DateTime @default(now())
+  sources TradeWorkbookSource[]
+  @@unique([companyId,checksum])
+}
+model TradeWorkbookSource {
+  id String @id @default(cuid())
+  fileId String
+  file TradeWorkbookFile @relation(fields:[fileId],references:[id],onDelete:Restrict)
+  documentId String @unique
+  document TradeDocument @relation(fields:[documentId],references:[id],onDelete:Restrict)
+  sheet String
+  sourceRow Int
+  headers Json
+  cells Json
+  requestId String @unique
+  fingerprint String
+  reason String
+  createdAt DateTime @default(now())
+  @@unique([fileId,sheet,sourceRow])
 }

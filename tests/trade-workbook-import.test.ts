@@ -1,0 +1,24 @@
+import 'dotenv/config';
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import ExcelJS from 'exceljs';
+import {randomUUID,createHash} from 'node:crypto';
+import {prepareTradeWorkbookImport,importTradeWorkbookRow} from '../src/lib/trade-workbook-import';
+import {getDb} from '../src/lib/db';
+import {COMPANY_ID} from '../src/lib/constants';
+import {captureAccounting} from '../src/lib/accounting-delivery';
+const form=(v:Record<string,string>)=>{const f=new FormData();for(const [k,x]of Object.entries(v))f.set(k,x);return f;};
+async function fixture(approval:string,negative=false){const b=new ExcelJS.Workbook(),s=b.addWorksheet('매 입'),h=Array(43).fill('');h[0]='작성일자';h[1]='승인번호';h[14]='합계금액';h[15]='공급가액';h[16]='세액';s.addRow(h);const r=Array(43).fill('');r[0]='2026-10-01';r[1]=approval;r[4]='0012345678';r[6]='합성 자재업체';r[14]=negative?'-1100':'1100';r[15]=negative?'-1000':'1000';r[16]=negative?'-100':'100';r[26]='합성 자재';r[33]='2026-10-15';r[42]='확장 메모 보존';s.addRow(r);return new Uint8Array(await b.xlsx.writeBuffer());}
+test('원본을 서버에서 다시 읽고 확인·수정/음수 보호를 적용한다',async()=>{
+ const values={requestId:randomUUID(),sheet:'매 입',sourceRow:'2',reference:'합성',title:'합성 자재',partnerId:'합성',taxKind:'TAXABLE',reason:'원본 확인',mappingConfirmed:'on'};const bytes=await fixture(randomUUID().replace(/-/g,''));const data=form({...values,taxAmount:'99999',supplyAmount:'99999'}),p=await prepareTradeWorkbookImport(data,'검증.xlsx',bytes);assert.equal(p.row.tax,'100');assert.equal(p.row.supply,'1000');assert.equal(p.checksum,createHash('sha256').update(bytes).digest('hex'));assert.equal(p.row.raw[42],'확장 메모 보존');
+ await assert.rejects(prepareTradeWorkbookImport(form({...values,mappingConfirmed:''}),'검증.xlsx',bytes),/대조/);await assert.rejects(prepareTradeWorkbookImport(form(values),'검증.xlsx',await fixture('NEGATIVE',true)),/음수/);await assert.rejects(prepareTradeWorkbookImport(form({...values,sourceRow:'999'}),'검증.xlsx',bytes),/검토 후보/);
+});
+test('검토 원본 이관은 한 번만 청구를 만들고 원본·회계 전달·미수금 상태를 보존한다',async()=>{
+ const db=getDb(),rollback=new Error('IMPORT_ROLLBACK');const bytes=await fixture(randomUUID().replace(/-/g,'').toUpperCase());try{await assert.rejects(db.$transaction(async tx=>{
+  await tx.company.upsert({where:{id:COMPANY_ID},create:{id:COMPANY_ID,name:'합성 이관 회사'},update:{}});const partner=await tx.partner.create({data:{companyId:COMPANY_ID,code:randomUUID(),name:'합성 자재업체',type:'SUPPLIER'}});
+  const values={requestId:randomUUID(),sheet:'매 입',sourceRow:'2',reference:randomUUID(),title:'합성 자재',partnerId:partner.id,taxKind:'TAXABLE',reason:'원본과 거래처 대조',mappingConfirmed:'on'};
+  const prepared=await prepareTradeWorkbookImport(form(values),'검증.xlsx',bytes),beforeBanks=await tx.bankTransaction.count(),beforePlans=await tx.cashPlan.count();const saved=await importTradeWorkbookRow(tx,prepared);assert.equal(saved.replayed,false);assert.deepEqual(await importTradeWorkbookRow(tx,prepared),{id:saved.id,replayed:true});const document=await tx.tradeDocument.findUniqueOrThrow({where:{id:saved.id},include:{workbookSource:{include:{file:true}}}});assert.equal(document.grossAmount.toFixed(0),'1100');assert.equal(document.settledAmount.toFixed(0),'0');assert.equal(document.proofConfirmed,false);assert.equal(document.inputVatReview,'PENDING');assert.equal(document.workbookSource?.sourceRow,2);assert.equal(document.workbookSource?.sheet,'매 입');assert.deepEqual(Buffer.from(document.workbookSource!.file.content),Buffer.from(bytes));assert.equal((document.workbookSource!.cells as string[])[42],'확장 메모 보존');assert.equal(await tx.bankTransaction.count(),beforeBanks);assert.equal(await tx.cashPlan.count(),beforePlans);
+  const different=await prepareTradeWorkbookImport(form({...values,title:'다른 내용'}),'검증.xlsx',bytes);await assert.rejects(importTradeWorkbookRow(tx,different),/다른 원본/);const retry=await prepareTradeWorkbookImport(form({...values,requestId:randomUUID()}),'검증.xlsx',bytes);await assert.rejects(importTradeWorkbookRow(tx,retry),/이미 이관/);
+  const delivery=await captureAccounting(tx,'2026-10');assert.ok(delivery.snapshot.attachments?.some(f=>f.id===document.workbookSource!.fileId&&f.kind==='TRADE_WORKBOOK'&&f.size===bytes.length));assert.ok(delivery.snapshot.tables.find(t=>t.title==='매입매출 이관 원본')?.rows.some(r=>r[0]===saved.id&&r[6].includes('확장 메모 보존')));throw rollback;
+ },{timeout:30000}),(e:unknown)=>e===rollback);}finally{await db.$disconnect();}
+});
