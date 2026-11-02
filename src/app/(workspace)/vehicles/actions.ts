@@ -13,3 +13,5 @@ export async function saveAssignmentAction(_s:FormState,d:FormData){return perfo
 export async function voidAssignmentAction(_s:FormState,d:FormData){return perform("assignmentVoid",d);}
 export async function saveExpenseAction(_s:FormState,d:FormData){return perform("expense",d);}
 export async function voidExpenseAction(_s:FormState,d:FormData){return perform("expenseVoid",d);}
+
+export async function linkExpenseAction(_s:FormState,d:FormData){return perform("expenseLink",d);}

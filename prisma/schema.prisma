@@ -405,6 +405,7 @@ enum InputVatReview {
 model TradeDocument {
   cashPlanId String? @unique
   cashPlan CashPlan? @relation(fields:[cashPlanId],references:[id],onDelete:Restrict)
+  vehicleExpense VehicleExpense?
   stockMovements StockMovement[]
   paymentMethod PaymentMethod @default(UNCONFIRMED)
   companyExpense Boolean @default(false)
@@ -836,6 +837,8 @@ model VehicleAssignment {
   createdAt DateTime @default(now())
 }
 model VehicleExpense {
+  documentId String? @unique
+  document TradeDocument? @relation(fields:[documentId],references:[id],onDelete:Restrict)
   id String @id @default(cuid())
   vehicleId String
   vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
