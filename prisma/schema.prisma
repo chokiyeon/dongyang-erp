@@ -1200,6 +1200,8 @@ model TradeWorkbookFile {
   @@unique([companyId,checksum])
 }
 model TradeWorkbookSource {
+  replacesCancellationId String?
+  replacesCancellation TradeCancellation? @relation(fields:[replacesCancellationId],references:[id],onDelete:Restrict)
   id String @id @default(cuid())
   fileId String
   file TradeWorkbookFile @relation(fields:[fileId],references:[id],onDelete:Restrict)
@@ -1214,6 +1216,7 @@ model TradeWorkbookSource {
   reason String
   createdAt DateTime @default(now())
   @@unique([fileId,sheet,sourceRow])
+  @@index([replacesCancellationId])
 }
 
 model PartnerIdentityChange {
@@ -1227,6 +1230,7 @@ model PartnerIdentityChange {
 }
 
 model TradeCancellation {
+  replacements TradeWorkbookSource[]
   id String @id @default(cuid())
   companyId String
   company Company @relation(fields:[companyId],references:[id],onDelete:Restrict)
