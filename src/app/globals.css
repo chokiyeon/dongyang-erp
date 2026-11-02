@@ -259,3 +259,15 @@ a:focus-visible { outline: 3px solid #2563eb; outline-offset: 4px; }
 .payroll-slip-sign strong { font-size: 19px; letter-spacing: 3px; }
 @media print { .payroll-slip-paper td, .payroll-slip-sign, .payroll-slip-net, .payroll-slip-heading { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
 .payroll-slip-paper .payroll-slip-amounts td.payroll-slip-expression { white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
+
+/* Uploaded workbook headers retain their order and measured column widths. */
+.excel-sheet-tabs{display:flex;gap:3px;margin:14px 0 0;flex-wrap:wrap}
+.excel-sheet-tabs a{padding:9px 18px;border:1px solid #9cab9b;background:#f5f7f1;color:#274a33}
+.excel-sheet-tabs a[aria-current=page]{background:white;border-bottom:3px solid #358153;font-weight:bold}
+.excel-original-scroll{overflow:auto;max-height:70vh;border:1px solid #929b9f;margin-top:12px}
+.excel-original-grid{border-collapse:collapse;table-layout:fixed;width:max-content;min-width:100%;font:12px Arial,"Malgun Gothic",sans-serif;background:white;color:#111}
+.excel-original-grid th,.excel-original-grid td{border:1px solid #a9b0b3;padding:6px 8px;height:30px;white-space:pre-wrap;overflow-wrap:anywhere;vertical-align:middle}
+.excel-original-grid th{position:sticky;top:0;z-index:1;text-align:center;font-weight:600}
+.excel-original-grid td a{color:#155394;text-decoration:underline}
+.excel-original-grid .excel-number{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.excel-original-total{background:#fff2cc;font-weight:bold}

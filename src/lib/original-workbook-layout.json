@@ -1,0 +1,640 @@
+{
+  "SALE": {
+    "title": "매 출",
+    "columns": [
+      {
+        "column": 1,
+        "label": "작성일자",
+        "width": 73,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 2,
+        "label": "승인번호",
+        "width": 171,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 3,
+        "label": "발급일자",
+        "width": 73,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 4,
+        "label": "전송일자",
+        "width": 73,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 5,
+        "label": "공급자사업자등록번호",
+        "width": 119,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 6,
+        "label": "종사업장번호",
+        "width": 86,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 7,
+        "label": "상호",
+        "width": 77,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 8,
+        "label": "대표자명",
+        "width": 65,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 9,
+        "label": "주소",
+        "width": 65,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 10,
+        "label": "공급받는자사업자등록번호",
+        "width": 85,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 11,
+        "label": "종사업장번호",
+        "width": 65,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 12,
+        "label": "상호",
+        "width": 280,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 13,
+        "label": "대표자명",
+        "width": 65,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 14,
+        "label": "주소",
+        "width": 67,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 15,
+        "label": "합계금액",
+        "width": 103,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 16,
+        "label": "공급가액",
+        "width": 103,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 17,
+        "label": "세액",
+        "width": 103,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 18,
+        "label": "전자세금계산서분류",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 19,
+        "label": "전자세금계산서종류",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 20,
+        "label": "발급유형",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 21,
+        "label": "비고",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 22,
+        "label": "영수/청구 구분",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 23,
+        "label": "공급자 이메일",
+        "width": 93,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 24,
+        "label": "공급받는자 이메일1",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 25,
+        "label": "공급받는자 이메일2",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 26,
+        "label": "품목일자",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 27,
+        "label": "품목명",
+        "width": 280,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 28,
+        "label": "품목규격",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 29,
+        "label": "품목수량",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 30,
+        "label": "품목단가",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 31,
+        "label": "품목공급가액",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 32,
+        "label": "품목세액",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 33,
+        "label": "품목비고",
+        "width": 113,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 34,
+        "label": "수 금 일",
+        "width": 65,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 35,
+        "label": "",
+        "width": 65,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 36,
+        "label": "비  고",
+        "width": 79,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 37,
+        "label": "결재예정일",
+        "width": 114,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 38,
+        "label": "순서",
+        "width": 123,
+        "span": 1,
+        "background": null
+      }
+    ]
+  },
+  "PURCHASE": {
+    "title": "매 입",
+    "columns": [
+      {
+        "column": 1,
+        "label": "작성일자",
+        "width": 79,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 2,
+        "label": "승인번호",
+        "width": 159,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 3,
+        "label": "발급일자",
+        "width": 65,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 4,
+        "label": "전송일자",
+        "width": 65,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 5,
+        "label": "공급자사업자등록번호",
+        "width": 86,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 6,
+        "label": "종사업장번호",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 7,
+        "label": "상호",
+        "width": 167,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 8,
+        "label": "대표자명",
+        "width": 66,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 9,
+        "label": "주소",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 10,
+        "label": "공급받는자사업자등록번호",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 11,
+        "label": "종사업장번호",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 12,
+        "label": "상호",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 13,
+        "label": "대표자명",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 14,
+        "label": "주소",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 15,
+        "label": "합계금액",
+        "width": 107,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 16,
+        "label": "공급가액",
+        "width": 107,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 17,
+        "label": "세액",
+        "width": 100,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 18,
+        "label": "전자세금계산서분류",
+        "width": 65,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 19,
+        "label": "전자세금계산서종류",
+        "width": 65,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 20,
+        "label": "발급유형",
+        "width": 69,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 21,
+        "label": "비고",
+        "width": 280,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 22,
+        "label": "영수/청구 구분",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 23,
+        "label": "공급자 이메일",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 24,
+        "label": "공급받는자 이메일1",
+        "width": 155,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 25,
+        "label": "공급받는자 이메일2",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 26,
+        "label": "품목일자",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 27,
+        "label": "품목명",
+        "width": 218,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 28,
+        "label": "품목규격",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 29,
+        "label": "품목수량",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 30,
+        "label": "품목단가",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 31,
+        "label": "품목공급가액",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 32,
+        "label": "품목세액",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 33,
+        "label": "품목비고",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 34,
+        "label": "결 재 일",
+        "width": 65,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 35,
+        "label": "",
+        "width": 65,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 36,
+        "label": "비  고",
+        "width": 173,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 37,
+        "label": "결재예정일",
+        "width": 147,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 38,
+        "label": "결재계좌",
+        "width": 235,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 39,
+        "label": "",
+        "width": 137,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 40,
+        "label": "",
+        "width": 80,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 41,
+        "label": "순서",
+        "width": 65,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 42,
+        "label": "거래명세서",
+        "width": 84,
+        "span": 1,
+        "background": null
+      }
+    ]
+  },
+  "ISSUED": {
+    "title": "발행어음조회(발행일)",
+    "columns": [
+      {
+        "column": 1,
+        "label": "",
+        "width": 65,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 2,
+        "label": "전자어음번호",
+        "width": 154,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 3,
+        "label": "전자어음금액",
+        "width": 65,
+        "span": 3,
+        "background": null
+      },
+      {
+        "column": 6,
+        "label": "어음상태",
+        "width": 65,
+        "span": 2,
+        "background": null
+      },
+      {
+        "column": 8,
+        "label": "발행일",
+        "width": 65,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 9,
+        "label": "만기일",
+        "width": 65,
+        "span": 2,
+        "background": null
+      },
+      {
+        "column": 11,
+        "label": "수취인 법인명",
+        "width": 65,
+        "span": 2,
+        "background": null
+      },
+      {
+        "column": 13,
+        "label": "수취인 대표자(성명)",
+        "width": 65,
+        "span": 2,
+        "background": null
+      },
+      {
+        "column": 15,
+        "label": "당행어음번호",
+        "width": 76,
+        "span": 1,
+        "background": null
+      }
+    ]
+  }
+}
