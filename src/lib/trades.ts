@@ -1,3 +1,4 @@
+import {normalizeTaxApproval} from "./trade-identifiers";
 import {invalidateSourceCosts} from "./source-cost-invalidation";
 import {assertBankNotVehicleMatched} from "./vehicle-cash";
 import {assertPeriodsOpen} from "./period-guard";
@@ -29,6 +30,7 @@ export async function saveTradeDocument(tx: Prisma.TransactionClient, data: Form
   if (taxKind !== "TAXABLE" && taxAmount !== "0") throw new InputError("영세율·면세 거래의 부가세는 0원이어야 합니다.");
   if (BigInt(taxAmount) > BigInt(supplyAmount)) throw new InputError("부가세가 공급가액보다 큽니다. 증빙을 확인해 주세요.");
   const evidence = choice(text(data, "evidence", "증빙 종류", true), Object.keys(TRADE_EVIDENCE) as (keyof typeof TRADE_EVIDENCE)[], "증빙 종류");
+  const taxApprovalNumber=data.has("taxApprovalNumber")?normalizeTaxApproval(text(data,"taxApprovalNumber","전자 승인번호",false,80)):undefined;
   const proofConfirmed = data.get("proofConfirmed") === "on";
   let inputVatReview = choice(text(data, "inputVatReview", "매입세액 공제 검토", true), Object.keys(INPUT_VAT_REVIEWS) as (keyof typeof INPUT_VAT_REVIEWS)[], "매입세액 공제 검토");
   if (kind === "SALE") inputVatReview = "PENDING";
@@ -46,12 +48,15 @@ export async function saveTradeDocument(tx: Prisma.TransactionClient, data: Form
   const paymentMethod=kind==="SALE"?"UNCONFIRMED":rawMethod==="PARTNER"?payPartner?.paymentMethod??"UNCONFIRMED":choice(rawMethod,Object.keys(PAYMENT_METHODS) as (keyof typeof PAYMENT_METHODS)[],"지급방법");
   const companyExpense=kind==="PURCHASE"&&data.get("companyExpense")==="on";
   if(companyExpense&&projectId)throw new InputError("현장 지급은 현장을 선택하고, 본사·공통 지급은 현장 없이 표시하세요.");
-  const values = { paymentMethod, companyExpense, profitCategory, kind, reference, title, partnerId, projectId, issuedDate, dueDate, supplyAmount, taxAmount, grossAmount: gross.toString(), taxKind, evidence, proofConfirmed, inputVatReview, note };
+  const values = { taxApprovalNumber,paymentMethod, companyExpense, profitCategory, kind, reference, title, partnerId, projectId, issuedDate, dueDate, supplyAmount, taxAmount, grossAmount: gross.toString(), taxKind, evidence, proofConfirmed, inputVatReview, note };
   const digest = fingerprint({ id, version, values, reason });
   const replay = await tx.tradeDocumentChange.findUnique({ where: { requestId }, include: { document: true } });
   if (replay) { if (replay.document.companyId !== COMPANY_ID || replay.fingerprint !== digest) throw new InputError("다른 내용으로 사용된 요청입니다. 화면을 다시 열어 주세요."); return replay.documentId; }
   const previous = id ? await tx.tradeDocument.findFirst({ where: { id, companyId: COMPANY_ID } }) : null;
   if (id && (!previous || previous.voidedAt)) throw new InputError("사용 중인 회사 문서를 선택해 주세요.");
+  const effectiveApproval=taxApprovalNumber===undefined?previous?.taxApprovalNumber:taxApprovalNumber;
+  if(effectiveApproval&&evidence!=="TAX_INVOICE")throw new InputError("전자 승인번호는 세금계산서 원본에만 입력하세요. 증빙 종류와 번호를 확인하세요.");
+  if(effectiveApproval&&await tx.tradeDocument.findFirst({where:{companyId:COMPANY_ID,taxApprovalNumber:effectiveApproval,voidedAt:null,...(id?{id:{not:id}}:{})}}))throw new InputError("같은 전자 승인번호의 활성 문서가 있습니다. 기존 매입·매출을 확인하세요.");
   if (previous && previous.settledAmount.toFixed(0) !== "0" && (previous.grossAmount.toFixed(0) !== values.grossAmount || previous.partnerId !== partnerId || previous.projectId !== projectId)) throw new InputError("금액·거래처·현장을 바꾸려면 은행 연결을 먼저 해제해 주세요.");
   const partner = payPartner;
   if (!partner || (!partner.active && previous?.partnerId !== partner.id)) throw new InputError("구분에 맞는 사용 중인 회사 거래처를 선택해 주세요.");
@@ -66,7 +71,7 @@ export async function saveTradeDocument(tx: Prisma.TransactionClient, data: Form
   else { documentId = (await tx.tradeDocument.create({ data: { ...values, companyId: COMPANY_ID } })).id; }
   const snapshot = previous ? JSON.parse(JSON.stringify(previous)) as Prisma.InputJsonValue : {};
   await tx.tradeDocumentChange.create({ data: { documentId, requestId, fingerprint: digest, previous: snapshot, next: JSON.parse(JSON.stringify(values)) as Prisma.InputJsonValue, reason } });
-  if(previous&&["supplyAmount","taxAmount","profitCategory","inputVatReview","proofConfirmed","projectId","companyExpense","issuedDate","partnerId"].some(key=>{const before=previous[key as keyof typeof previous],after=values[key as keyof typeof values];return String(before instanceof Date?before.toISOString():before??"")!==String(after instanceof Date?after.toISOString():after??"");}))await invalidateSourceCosts(tx,"TRADE",[documentId]);
+  if(previous&&["supplyAmount","taxAmount","profitCategory","inputVatReview","proofConfirmed","projectId","companyExpense","issuedDate","partnerId","taxApprovalNumber"].some(key=>{const before=previous[key as keyof typeof previous],after=key==="taxApprovalNumber"&&values.taxApprovalNumber===undefined?before:values[key as keyof typeof values];return String(before instanceof Date?before.toISOString():before??"")!==String(after instanceof Date?after.toISOString():after??"");}))await invalidateSourceCosts(tx,"TRADE",[documentId]);
   await refreshTradeCashPlan(tx,documentId);
   return documentId;
 }

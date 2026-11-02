@@ -404,6 +404,8 @@ enum InputVatReview {
   NONDEDUCTIBLE
 }
 model TradeDocument {
+  // Active approval numbers have a partial unique index in SQL. Cancelled history is retained.
+  taxApprovalNumber String?
   cashPlanId String? @unique
   cashPlan CashPlan? @relation(fields:[cashPlanId],references:[id],onDelete:Restrict)
   vehicleExpense VehicleExpense?

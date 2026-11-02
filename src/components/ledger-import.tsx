@@ -1,4 +1,5 @@
 "use client";
+import {browserSha256} from "@/lib/browser-crypto";
 import { useHydrated } from "@/lib/use-hydrated";
 import { useState } from "react";
 import type { ImportRow } from "@/lib/ledger";
@@ -22,8 +23,7 @@ export function LedgerImport({ accounts }: { accounts: { id: string; label: stri
       const { Workbook } = await import("exceljs");
       const workbook = new Workbook(); await workbook.xlsx.load(bytes);
       const parsed = parseBankWorkbook(workbook);
-      const digest = await crypto.subtle.digest("SHA-256", bytes);
-      setFileHash(Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join(""));
+      setFileHash(await browserSha256(bytes));
       setRows(parsed);
     } catch (e) { setError(e instanceof Error ? e.message : "엑셀 파일을 읽지 못했습니다."); }
     finally { setBusy(false); }

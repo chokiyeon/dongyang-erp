@@ -2,6 +2,13 @@ import {test,expect} from "@playwright/test";
 import {randomUUID} from "node:crypto";
 import {getDb} from "../../src/lib/db";
 import {COMPANY_ID} from "../../src/lib/constants";
+// 사내 IP의 HTTP 접속처럼 보안 컨텍스트 전용 API가 없는 환경을 검증한다.
+test.beforeEach(async ({page})=>{
+ await page.addInitScript(()=>{
+  Object.defineProperty(window.crypto,"subtle",{configurable:true,value:undefined});
+  Object.defineProperty(window.crypto,"randomUUID",{configurable:true,value:undefined});
+ });
+});
 test("한 자재 계산서를 여러 공사로 배부하고 손익·미지급·송금표에 중복 없이 표시한다",async({page})=>{
  test.setTimeout(90000);const db=getDb(),tag=randomUUID().slice(0,8),reference=`PA-${tag}`;const projectIds:string[]=[];let partnerId="",documentId="";
  try{

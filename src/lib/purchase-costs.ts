@@ -19,9 +19,9 @@ export function purchaseOutstandingShares(unpaid:bigint,common:bigint,entries:{p
  let allocated=0n;for(const[eIndex,e]of components.entries()){const share=eIndex===components.length-1?unpaid-allocated:unpaid*e.amount/total;shares.set(e.projectId,share);allocated+=share;}return shares;
 }
 
-type PurchaseBasisDocument={id:string;partnerId:string;projectId:string|null;companyExpense:boolean;issuedDate:Date;supplyAmount:{toFixed(n:number):string};taxAmount:{toFixed(n:number):string};inputVatReview:string;proofConfirmed:boolean;profitCategory:string|null};
+type PurchaseBasisDocument={taxApprovalNumber?:string|null;id:string;partnerId:string;projectId:string|null;companyExpense:boolean;issuedDate:Date;supplyAmount:{toFixed(n:number):string};taxAmount:{toFixed(n:number):string};inputVatReview:string;proofConfirmed:boolean;profitCategory:string|null};
 export function purchaseCostDigest(doc:PurchaseBasisDocument){
- const snapshot={id:doc.id,partnerId:doc.partnerId,projectId:doc.projectId,companyExpense:doc.companyExpense,date:doc.issuedDate.toISOString(),supply:doc.supplyAmount.toFixed(0),tax:doc.taxAmount.toFixed(0),vat:doc.inputVatReview,proof:doc.proofConfirmed,category:doc.profitCategory};
+ const snapshot={...(doc.taxApprovalNumber?{taxApprovalNumber:doc.taxApprovalNumber}:{}),id:doc.id,partnerId:doc.partnerId,projectId:doc.projectId,companyExpense:doc.companyExpense,date:doc.issuedDate.toISOString(),supply:doc.supplyAmount.toFixed(0),tax:doc.taxAmount.toFixed(0),vat:doc.inputVatReview,proof:doc.proofConfirmed,category:doc.profitCategory};
  return createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");
 }
 export async function enrichPurchaseOutstanding<T extends {projectId:string;sourceReviewId:string|null;sourceConfirmed:boolean}>(db:PrismaClient|Prisma.TransactionClient,entries:T[]):Promise<(T&{unpaidPurchase?:bigint})[]>{

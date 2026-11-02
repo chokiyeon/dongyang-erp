@@ -4,6 +4,13 @@ import {readFile} from "node:fs/promises";
 import {spawnSync} from "node:child_process";
 import {getDb} from "../../src/lib/db";
 import {COMPANY_ID} from "../../src/lib/constants";
+// 사내 IP의 HTTP 접속처럼 보안 컨텍스트 전용 API가 없는 환경을 검증한다.
+test.beforeEach(async ({page})=>{
+ await page.addInitScript(()=>{
+  Object.defineProperty(window.crypto,"subtle",{configurable:true,value:undefined});
+  Object.defineProperty(window.crypto,"randomUUID",{configurable:true,value:undefined});
+ });
+});
 test("업무 원본에 파일 첨부·다운로드·취소·복원하고 전달본 ZIP과 접근 보호를 검증한다",async({page})=>{
  test.setTimeout(90000);const db=getDb();const tag=randomUUID().slice(0,8);const existed=Boolean(await db.company.findUnique({where:{id:COMPANY_ID}}));let projectId="";let otherCompany="";let otherFile="";let packageId="";const pdf=Buffer.from("%PDF-1.4\nSynthetic contract evidence\n%%EOF");const filename=`합성 계약서 ${tag}.pdf`;const fields={sourceType:"PROJECT",category:"CONTRACT",period:"2026-10",note:"합성 계약서 원본",reason:"근거 파일 확인"};
  try{await db.company.upsert({where:{id:COMPANY_ID},create:{id:COMPANY_ID,name:`첨부 검증 ${tag}`},update:{}});projectId=(await db.project.create({data:{companyId:COMPANY_ID,code:`DOC-${tag}`,name:`첨부 현장 ${tag}`}})).id;otherCompany=(await db.company.create({data:{name:"타사 첨부 합성 회사"}})).id;otherFile=(await db.documentAttachment.create({data:{companyId:otherCompany,fileName:"타사.pdf",content:pdf,checksum:createHash("sha256").update(pdf).digest("hex"),size:pdf.length,mediaType:"application/pdf",sourceType:"GENERAL",sourceId:"",category:"OTHER",note:"타사 합성 자료"}})).id;const otherProject=await db.project.create({data:{companyId:otherCompany,code:randomUUID(),name:"타사 첨부 공사"}});

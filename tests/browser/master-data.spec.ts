@@ -6,6 +6,13 @@ import { getDb } from "../../src/lib/db";
 import { BANKS } from "../../src/lib/validation";
 import { COMPANY_ID } from "../../src/lib/constants";
 
+// 사내 IP의 HTTP 접속처럼 보안 컨텍스트 전용 API가 없는 환경을 검증한다.
+test.beforeEach(async ({page})=>{
+ await page.addInitScript(()=>{
+  Object.defineProperty(window.crypto,"subtle",{configurable:true,value:undefined});
+  Object.defineProperty(window.crypto,"randomUUID",{configurable:true,value:undefined});
+ });
+});
 test("로그인·회사·거래처·현장·계좌 등록과 수정", async ({ page, context }) => {
   test.setTimeout(60000);
   const pageErrors: string[] = [];

@@ -19,9 +19,10 @@ test("매출·매입 등록부터 분할 수금·지급·미수·부가세·해�
       await page.goto(`/trades?kind=${kind}`);await page.getByLabel("관리번호").fill(`${kind}-${tag}`);await page.getByLabel("청구·거래내용").fill(`${name} ${kind}`);
       await page.getByLabel("매입·매출 거래처").selectOption(partner.id);await page.getByLabel("매입·매출 현장").selectOption(project.id);
       if(kind==="PURCHASE")await page.getByLabel("매입 지급기한 기준").selectOption("MANUAL");await page.getByLabel("수금·지급 기한").fill("2026-10-01");await page.getByLabel("공급가액 (원)").fill(supply);await page.getByLabel("부가세 (원)").fill(tax);
-      await page.getByRole("combobox",{name:"증빙 종류",exact:true}).selectOption("TAX_INVOICE");await page.getByLabel("실제 증빙 원본과 금액·거래처·날짜를 확인했습니다.").check();
+      await page.getByLabel("전자세금계산서 승인번호 (있을 때)").fill(`${kind.toLowerCase()}-${tag}`);await page.getByRole("combobox",{name:"증빙 종류",exact:true}).selectOption("TAX_INVOICE");await page.getByLabel("실제 증빙 원본과 금액·거래처·날짜를 확인했습니다.").check();
       if(kind==="PURCHASE")await page.getByLabel("매입세액 공제 검토").selectOption("DEDUCTIBLE");
       await page.getByLabel("등록·수정 사유").fill("검증 등록");await page.getByRole("button",{name:"매입·매출 저장",exact:true}).click();await expect(page.getByRole("status")).toHaveText("매입·매출 자료를 저장했습니다.");
+      await expect(page.getByLabel("전자세금계산서 승인번호 (있을 때)")).toHaveValue(`${kind}${tag}`.toUpperCase());
       return db.tradeDocument.findUniqueOrThrow({where:{companyId_kind_reference:{companyId:COMPANY_ID,kind,reference:`${kind}-${tag}`}}});
     }
     async function connect(bankId:string,value:string) {

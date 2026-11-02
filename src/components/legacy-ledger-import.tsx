@@ -1,4 +1,5 @@
 "use client";
+import {browserSha256} from "@/lib/browser-crypto";
 import { useHydrated } from "@/lib/use-hydrated";
 import { useRef, useState } from "react";
 import type { Workbook } from "exceljs";
@@ -30,7 +31,7 @@ export function LegacyLedgerImport({ accounts }: { accounts: Account[] }) {
     try {
       const bytes = await file.arrayBuffer(); const { Workbook } = await import("exceljs"); const book = new Workbook(); await book.xlsx.load(bytes);
       workbook.current = book; setSheets(book.worksheets.map((s) => s.name));
-      const digest = await crypto.subtle.digest("SHA-256", bytes); setFileHash(Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join(""));
+      setFileHash(await browserSha256(bytes));
       const years = book.worksheets.map((s) => s.name).filter((name) => /^\d{4}$/.test(name) && Number(name) <= Number(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric" }).format(new Date()))).sort().reverse();
       analyze(years[0] ?? book.worksheets[0]?.name ?? "");
     } catch (e) { setError(e instanceof Error ? e.message : "장부를 읽지 못했습니다."); }
