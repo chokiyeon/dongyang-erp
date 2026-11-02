@@ -570,6 +570,10 @@ enum ReceivedNoteStatus {
   VOID
 }
 model ReceivedNote {
+  ledgerBank String?
+  sourceIssuedDate DateTime? @db.Date
+  issuingBank String?
+  sourceNoteKind String?
   id String @id @default(cuid())
   companyId String
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
@@ -596,6 +600,7 @@ model ReceivedNote {
   updatedAt DateTime @updatedAt
   @@unique([companyId, reference])
   @@index([companyId, status, dueDate])
+  @@index([companyId, ledgerBank, dueDate])
 }
 model ReceivedNoteChange {
   id String @id @default(cuid())

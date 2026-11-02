@@ -3,16 +3,26 @@ import { createHash,randomUUID } from "node:crypto";
 import type { Prisma } from "@/generated/prisma/client";
 import { COMPANY_ID } from "./constants";
 import { koreanToday } from "./forecast";
-import { discountedProceeds } from "./received-note-types";
+import { NOTE_LEDGER_BANKS, discountedProceeds } from "./received-note-types";
 import { text,date,amount,choice,revision,InputError } from "./validation";
 const digest=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
 function request(data:FormData){const id=text(data,"requestId","요청",true,50);if(!/^[0-9a-f-]{36}$/i.test(id))throw new InputError("화면을 다시 열어 주세요.");return id;}
 async function replay(tx:Prisma.TransactionClient,requestId:string,fingerprint:string){const r=await tx.receivedNoteChange.findUnique({where:{requestId},include:{note:true}});if(r&&(r.note.companyId!==COMPANY_ID||r.fingerprint!==fingerprint))throw new InputError("다른 내용으로 사용된 요청입니다. 다시 조회해 주세요.");return r?.noteId;}
+function readSourceMetadata(data:FormData,receivedDate:Date){
+ const ledgerBank=text(data,"ledgerBank","대장 은행",false,20)||null;
+ if(ledgerBank&&!NOTE_LEDGER_BANKS.includes(ledgerBank as typeof NOTE_LEDGER_BANKS[number]))throw new InputError("어음대장 은행을 확인하세요.");
+ const sourceIssuedDate=date(text(data,"sourceIssuedDate","원본 어음 발행일",false),"원본 어음 발행일");
+ if(sourceIssuedDate&&sourceIssuedDate>receivedDate)throw new InputError("원본 어음 발행일은 수취일 이후일 수 없습니다.");
+ const issuingBank=text(data,"issuingBank","원본 발행은행",false,100)||null,sourceNoteKind=text(data,"sourceNoteKind","원본 어음 종류",false,50)||null;
+ return {ledgerBank,sourceIssuedDate,issuingBank,sourceNoteKind};
+}
 export async function createReceivedNote(tx:Prisma.TransactionClient,data:FormData){
  const requestId=request(data);const reference=text(data,"reference","수취어음번호·관리번호",true,50);const partnerId=text(data,"partnerId","지급 거래처",true,50);const projectId=text(data,"projectId","현장",false,50)||null;const receivedDate=date(text(data,"receivedDate","수취일",true),"수취일")!;const dueDate=date(text(data,"dueDate","어음 만기일",true),"어음 만기일")!;
  if(receivedDate.toISOString().slice(0,10)>koreanToday())throw new InputError("실제 받은 어음만 등록하세요. 수취일은 오늘 이후일 수 없습니다.");
  const value=amount(text(data,"amount","액면금액",true,20),"액면금액")!;if(BigInt(value)<=0n)throw new InputError("액면금액은 0보다 커야 합니다.");const mode=choice(text(data,"scheduleMode","예정 연결",true),["NEW","EXISTING"] as const,"예정 연결");const cashPlanId=text(data,"cashPlanId","기존 예정",false,50);const note=text(data,"note","수취어음 비고",false,500);const reason=text(data,"reason","등록 사유",true,300);
- const fingerprint=digest({reference,partnerId,projectId,receivedDate,dueDate,value,mode,cashPlanId,note,reason});const previous=await replay(tx,requestId,fingerprint);if(previous)return previous;
+ const metadata=readSourceMetadata(data,receivedDate);
+ const {sourceIssuedDate}=metadata;
+ const fingerprint=digest({reference,partnerId,projectId,receivedDate,dueDate,value,mode,cashPlanId,note,reason,...(Object.values(metadata).some(Boolean)?{metadata}: {})});const previous=await replay(tx,requestId,fingerprint);if(previous)return previous;
  await assertPeriodsOpen(tx,receivedDate);
  const [partner,project]=await Promise.all([tx.partner.findFirst({where:{id:partnerId,companyId:COMPANY_ID,active:true,type:{in:["CLIENT","BOTH"]}}}),projectId?tx.project.findFirst({where:{id:projectId,companyId:COMPANY_ID,active:true}}):null]);if(!partner||(projectId&&!project))throw new InputError("사용 중인 회사 발주·매출 거래처와 현장을 선택하세요.");
  let planId="";
@@ -25,8 +35,8 @@ export async function createReceivedNote(tx:Prisma.TransactionClient,data:FormDa
   if(data.get("scheduleConfirmed")!=="on")throw new InputError("같은 어음 입금 예정이 이미 등록되어 있지 않은지 확인하세요.");
   planId=(await tx.cashPlan.create({data:{companyId:COMPANY_ID,direction:"IN",certainty:"ESTIMATED",title:`수취어음 ${reference} · ${partner.name}`,category:"수취어음",plannedDate:dueDate,plannedAmount:value,requestId:randomUUID()}})).id;
  }
- const created=await tx.receivedNote.create({data:{companyId:COMPANY_ID,reference,partnerId,projectId,receivedDate,dueDate,amount:value,cashPlanId:planId,note}});
- await tx.receivedNoteChange.create({data:{noteId:created.id,requestId,fingerprint,previous:{},next:{status:"HELD",reference,amount:value,receivedDate:receivedDate.toISOString().slice(0,10),dueDate:dueDate.toISOString().slice(0,10),cashPlanId:planId},reason}});return created.id;
+ const created=await tx.receivedNote.create({data:{companyId:COMPANY_ID,reference,partnerId,projectId,receivedDate,dueDate,amount:value,cashPlanId:planId,note,...metadata}});
+ await tx.receivedNoteChange.create({data:{noteId:created.id,requestId,fingerprint,previous:{},next:{status:"HELD",reference,amount:value,receivedDate:receivedDate.toISOString().slice(0,10),dueDate:dueDate.toISOString().slice(0,10),cashPlanId:planId,...metadata,sourceIssuedDate:sourceIssuedDate?.toISOString().slice(0,10)??null},reason}});return created.id;
 }
 export async function discountReceivedNote(tx:Prisma.TransactionClient,data:FormData){
  const id=text(data,"noteId","수취어음",true,50);const version=revision(data);const requestId=request(data);const transactionId=text(data,"transactionId","실입금 은행 거래",true,50);const fee=amount(text(data,"discountFee","할인료·수수료",true,20),"할인료·수수료")!;const reason=text(data,"reason","할인 처리 사유",true,300);const fingerprint=digest({id,version,transactionId,fee,reason});const prior=await replay(tx,requestId,fingerprint);if(prior)return prior;
@@ -54,4 +64,15 @@ export async function changeReceivedNote(tx:Prisma.TransactionClient,data:FormDa
  }else if(note.status!=="MATURED")throw new InputError("만기 확인을 완료한 할인어음만 확인 취소할 수 있습니다.");
  const changed=await tx.receivedNote.updateMany({where:{id,companyId:COMPANY_ID,version,status:note.status},data:{status:next,version:{increment:1},...(operation==="void"?{voidReason:reason}:{}),...(operation==="mature"?{maturityConfirmedAt:new Date()}:operation==="undoMaturity"?{maturityConfirmedAt:null}:{})}});if(changed.count!==1)throw new InputError("어음 상태가 변경되었습니다. 다시 조회하세요.");
  await tx.receivedNoteChange.create({data:{noteId:id,requestId,fingerprint,previous:{status:note.status},next:{status:next},reason}});return id;
+}
+
+export async function updateReceivedSourceMetadata(tx:Prisma.TransactionClient,data:FormData){
+ const requestId=request(data),id=text(data,"noteId","수취어음",true,50),version=revision(data),reason=text(data,"reason","원본 정보 정정 사유",true,300);
+ const note=await tx.receivedNote.findFirst({where:{id,companyId:COMPANY_ID}});if(!note)throw new InputError("회사 수취어음을 선택하세요.");
+ const metadata=readSourceMetadata(data,note.receivedDate),fingerprint=digest({operation:"sourceMetadata",id,version,metadata,reason});const previous=await replay(tx,requestId,fingerprint);if(previous)return previous;
+ if(note.status==="VOID")throw new InputError("취소된 어음의 원본 정보는 정정할 수 없습니다.");
+ await assertPeriodsOpen(tx,note.receivedDate);
+ const changed=await tx.receivedNote.updateMany({where:{id,companyId:COMPANY_ID,version,status:{not:"VOID"}},data:{...metadata,version:{increment:1}}});if(changed.count!==1)throw new InputError("어음 정보가 변경되었습니다. 다시 조회하세요.");
+ const snapshot=(v:{ledgerBank:string|null;sourceIssuedDate:Date|null;issuingBank:string|null;sourceNoteKind:string|null})=>({...v,sourceIssuedDate:v.sourceIssuedDate?.toISOString().slice(0,10)??null});
+ await tx.receivedNoteChange.create({data:{noteId:id,requestId,fingerprint,previous:snapshot({ledgerBank:note.ledgerBank,sourceIssuedDate:note.sourceIssuedDate,issuingBank:note.issuingBank,sourceNoteKind:note.sourceNoteKind}),next:snapshot(metadata),reason}});return id;
 }

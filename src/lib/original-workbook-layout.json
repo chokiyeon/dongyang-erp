@@ -636,5 +636,691 @@
         "background": null
       }
     ]
+  },
+  "ISSUED_DUE": {
+    "title": "발행어음조회(만기일)",
+    "columns": [
+      {
+        "column": 1,
+        "label": "",
+        "width": 65,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 2,
+        "label": "전자어음번호",
+        "width": 154,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 3,
+        "label": "전자어음금액",
+        "width": 65,
+        "span": 3,
+        "background": null
+      },
+      {
+        "column": 6,
+        "label": "어음상태",
+        "width": 65,
+        "span": 2,
+        "background": null
+      },
+      {
+        "column": 8,
+        "label": "발행일",
+        "width": 65,
+        "span": 1,
+        "background": null
+      },
+      {
+        "column": 9,
+        "label": "만기일",
+        "width": 65,
+        "span": 2,
+        "background": null
+      },
+      {
+        "column": 11,
+        "label": "수취인 법인명",
+        "width": 65,
+        "span": 2,
+        "background": null
+      },
+      {
+        "column": 13,
+        "label": "수취인 대표자(성명)",
+        "width": 65,
+        "span": 2,
+        "background": null
+      },
+      {
+        "column": 15,
+        "label": "당행어음번호",
+        "width": 76,
+        "span": 1,
+        "background": null
+      }
+    ]
+  },
+  "BANK_0": {
+    "title": "전북",
+    "columns": [
+      {
+        "column": 1,
+        "label": "순",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 2,
+        "label": "날  짜",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 3,
+        "label": "",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 4,
+        "label": "종  류",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 5,
+        "label": "번  호",
+        "width": 132,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 6,
+        "label": "상 호 명",
+        "width": 184,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 7,
+        "label": "발 행 일",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 8,
+        "label": "",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 9,
+        "label": "만 기 일",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 10,
+        "label": "",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 11,
+        "label": "발행은행",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 12,
+        "label": "금  액",
+        "width": 93,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 13,
+        "label": "할인수수료",
+        "width": 72,
+        "span": 2,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 15,
+        "label": "할인신청금액",
+        "width": 164,
+        "span": 1,
+        "background": "#FFFFCC"
+      }
+    ]
+  },
+  "BANK_1": {
+    "title": "신한",
+    "columns": [
+      {
+        "column": 1,
+        "label": "순",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 2,
+        "label": "날  짜",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 3,
+        "label": "",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 4,
+        "label": "종  류",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 5,
+        "label": "번  호",
+        "width": 132,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 6,
+        "label": "상 호 명",
+        "width": 89,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 7,
+        "label": "발 행 일",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 8,
+        "label": "",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 9,
+        "label": "만 기 일",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 10,
+        "label": "",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 11,
+        "label": "발행은행",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 12,
+        "label": "금  액",
+        "width": 93,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 13,
+        "label": "할인수수료",
+        "width": 72,
+        "span": 2,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 15,
+        "label": "할인신청금액",
+        "width": 216,
+        "span": 1,
+        "background": "#FFFFCC"
+      }
+    ]
+  },
+  "BANK_2": {
+    "title": "하나",
+    "columns": [
+      {
+        "column": 1,
+        "label": " ",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 2,
+        "label": "날  짜",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 3,
+        "label": "",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 4,
+        "label": "종  류",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 5,
+        "label": "번  호",
+        "width": 132,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 6,
+        "label": "상 호 명",
+        "width": 118,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 7,
+        "label": "발 행 일",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 8,
+        "label": "",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 9,
+        "label": "만 기 일",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 10,
+        "label": "",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 11,
+        "label": "발행은행",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 12,
+        "label": "금  액",
+        "width": 93,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 13,
+        "label": "할인수수료",
+        "width": 72,
+        "span": 2,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 15,
+        "label": "할인신청금액",
+        "width": 93,
+        "span": 1,
+        "background": "#FFFFCC"
+      }
+    ]
+  },
+  "BANK_3": {
+    "title": "국민",
+    "columns": [
+      {
+        "column": 1,
+        "label": "순",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 2,
+        "label": "날  짜",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 3,
+        "label": "",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 4,
+        "label": "종  류",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 5,
+        "label": "번  호",
+        "width": 132,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 6,
+        "label": "상 호 명",
+        "width": 89,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 7,
+        "label": "발 행 일",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 8,
+        "label": "",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 9,
+        "label": "만 기 일",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 10,
+        "label": "",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 11,
+        "label": "발행은행",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 12,
+        "label": "금  액",
+        "width": 93,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 13,
+        "label": "할인수수료",
+        "width": 72,
+        "span": 2,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 15,
+        "label": "할인신청금액",
+        "width": 93,
+        "span": 1,
+        "background": "#FFFFCC"
+      }
+    ]
+  },
+  "BANK_4": {
+    "title": "기업",
+    "columns": [
+      {
+        "column": 1,
+        "label": "순",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 2,
+        "label": "날  짜",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 3,
+        "label": "",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 4,
+        "label": "종  류",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 5,
+        "label": "번  호",
+        "width": 132,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 6,
+        "label": "상 호 명",
+        "width": 89,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 7,
+        "label": "발 행 일",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 8,
+        "label": "",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 9,
+        "label": "만 기 일",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 10,
+        "label": "",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 11,
+        "label": "발행은행",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 12,
+        "label": "금  액",
+        "width": 93,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 13,
+        "label": "할인수수료",
+        "width": 72,
+        "span": 2,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 15,
+        "label": "할인신청금액",
+        "width": 93,
+        "span": 1,
+        "background": "#FFFFCC"
+      }
+    ]
+  },
+  "UNASSIGNED": {
+    "title": "은행 미분류",
+    "columns": [
+      {
+        "column": 1,
+        "label": "순",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 2,
+        "label": "날  짜",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 3,
+        "label": "",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 4,
+        "label": "종  류",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 5,
+        "label": "번  호",
+        "width": 132,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 6,
+        "label": "상 호 명",
+        "width": 184,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 7,
+        "label": "발 행 일",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 8,
+        "label": "",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 9,
+        "label": "만 기 일",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 10,
+        "label": "",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 11,
+        "label": "발행은행",
+        "width": 65,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 12,
+        "label": "금  액",
+        "width": 93,
+        "span": 1,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 13,
+        "label": "할인수수료",
+        "width": 72,
+        "span": 2,
+        "background": "#FFFFCC"
+      },
+      {
+        "column": 15,
+        "label": "할인신청금액",
+        "width": 164,
+        "span": 1,
+        "background": "#FFFFCC"
+      }
+    ]
   }
 }
