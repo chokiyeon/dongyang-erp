@@ -1,3 +1,4 @@
+import {laborSourceDraft} from "./labor-source-import";
 import {assertPeriodsOpen} from "./period-guard";
 import {DAILY_DEDUCTIONS,dailyRateGroups,calculateDailyPay,readDailyPayDetails} from "./daily-payroll-details";
 import {MONTHLY_PAY_FIELDS,calculateMonthlyPay,readMonthlyPayDetails} from "./monthly-payroll-details";
@@ -38,12 +39,14 @@ export async function savePayroll(tx:Prisma.TransactionClient,op:"confirm"|"void
    snapshot={...base.basisData,monthlyDetails:calculation.details};
   }
   if(readDailyPayDetails(old?.snapshot)&&d.get("useDailyDetails")!=="on")throw new InputError("기존 일용직 공제 전 일당·공제 내역을 켜고 정정하세요.");
+  if(d.get("laborSourceDraftBasis")&&d.get("useDailyDetails")!=="on")throw new InputError("현장 원본을 채운 급여는 일당·공제 세부 내역을 함께 확인하세요.");
   if(d.get("useDailyDetails")==="on"){
    if(!base.daily||d.get("dailyGrossConfirmed")!=="on")throw new InputError("일용직 공제 전 일당과 공제 내역을 확인하세요.");
    const groups=dailyRateGroups(base.daily.lines.map(row=>({role:row.role,units:row.units.toFixed(2),rate:row.rateAmount.toFixed(0)})));
    const calculation=calculateDailyPay(groups.map((row,index)=>({...row,grossRate:text(d,`dailyGrossRate_${index}`,"공제 전 일당",true,20)})),Object.fromEntries(DAILY_DEDUCTIONS.map(([key])=>[key,text(d,`dailyDeduction_${key}`,key,true,20)])));
    if(calculation.net!==BigInt(netAmount))throw new InputError("일당 × 일수 − 공제합계와 최종 실지급액이 다릅니다.");
-   snapshot={...base.basisData,dailyDetails:calculation.details};
+   const sourceBasis=text(d,"laborSourceDraftBasis","현장 원본 검토 기준",false,64);let sourceIds:string[]=[];if(sourceBasis){const proposal=await laborSourceDraft(tx,period,employeeId);if(!proposal||proposal.basis!==sourceBasis||proposal.blocked.length)throw new InputError("현장 원본·출역이 변경되었거나 자동 채움이 보류되었습니다. 다시 검토하세요.");if(proposal.issues.length&&(d.get("laborSourceIssuesConfirmed")!=="on"||!adjustmentReason))throw new InputError("현장 원본의 금액 차이·미기재 항목을 대조하고 산정 근거를 기록하세요.");sourceIds=proposal.sourceIds;}
+   snapshot={...base.basisData,dailyDetails:calculation.details,...(sourceIds.length?{laborSourceIds:sourceIds}: {})};
   }
   values={netAmount,dueDate,basis:base.basis,snapshot,adjustmentReason};
  }

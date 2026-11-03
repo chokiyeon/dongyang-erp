@@ -1,5 +1,5 @@
 import {InputError} from "./validation";
-export type AttachmentManifest={kind?:"TRADE_WORKBOOK";id:string;fileName:string;checksum:string;size:number};
+export type AttachmentManifest={kind?:"TRADE_WORKBOOK"|"LABOR_SOURCE";id:string;fileName:string;checksum:string;size:number};
 export function attachmentParts(files:AttachmentManifest[]){const parts:AttachmentManifest[][]=[[]];let bytes=0;for(const file of files){if(file.size<0||file.size>10*1024*1024)throw new InputError("첨부 크기를 확인하세요.");if(bytes+file.size>30*1024*1024||parts[parts.length-1].length>=250){parts.push([]);bytes=0;}parts[parts.length-1].push(file);bytes+=file.size;}return parts;}
 export function bundledName(file:AttachmentManifest,index:number){return `files/${String(index+1).padStart(4,"0")}-${file.fileName.replace(/[:*?"<>|]/g,"_").replace(/[. ]+$/,"")}`;}
 const crcTable=Array.from({length:256},(_,n)=>{let c=n;for(let k=0;k<8;k++)c=c&1?0xedb88320^(c>>>1):c>>>1;return c>>>0;});

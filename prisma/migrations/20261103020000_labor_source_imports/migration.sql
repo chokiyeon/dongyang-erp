@@ -1,0 +1,8 @@
+CREATE TABLE "LaborImportFile" ("id" TEXT NOT NULL PRIMARY KEY,"companyId" TEXT NOT NULL REFERENCES "Company"("id") ON DELETE RESTRICT ON UPDATE CASCADE,"checksum" TEXT NOT NULL,"fileName" TEXT NOT NULL,"mediaType" TEXT NOT NULL,"content" BYTEA NOT NULL,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE UNIQUE INDEX "LaborImportFile_companyId_checksum_key" ON "LaborImportFile"("companyId","checksum");
+CREATE TABLE "LaborImportRow" ("id" TEXT NOT NULL PRIMARY KEY,"fileId" TEXT NOT NULL REFERENCES "LaborImportFile"("id") ON DELETE RESTRICT ON UPDATE CASCADE,"employeeId" TEXT NOT NULL REFERENCES "Employee"("id") ON DELETE RESTRICT ON UPDATE CASCADE,"projectId" TEXT NOT NULL REFERENCES "Project"("id") ON DELETE RESTRICT ON UPDATE CASCADE,"period" TEXT NOT NULL,"sheet" TEXT NOT NULL,"sourceRow" INTEGER NOT NULL,"role" "LaborRole" NOT NULL,"source" JSONB NOT NULL,"requestId" TEXT NOT NULL,"fingerprint" TEXT NOT NULL,"reason" TEXT NOT NULL,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE UNIQUE INDEX "LaborImportRow_requestId_key" ON "LaborImportRow"("requestId");
+CREATE UNIQUE INDEX "LaborImportRow_fileId_sheet_sourceRow_key" ON "LaborImportRow"("fileId","sheet","sourceRow");
+CREATE INDEX "LaborImportRow_employeeId_period_idx" ON "LaborImportRow"("employeeId","period");
+CREATE TABLE "LaborImportWork" ("id" TEXT NOT NULL PRIMARY KEY,"importId" TEXT NOT NULL REFERENCES "LaborImportRow"("id") ON DELETE RESTRICT ON UPDATE CASCADE,"workId" TEXT NOT NULL REFERENCES "WorkRecord"("id") ON DELETE RESTRICT ON UPDATE CASCADE,"workVersion" INTEGER NOT NULL);
+CREATE UNIQUE INDEX "LaborImportWork_workId_key" ON "LaborImportWork"("workId");

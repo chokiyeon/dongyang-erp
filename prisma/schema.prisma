@@ -8,6 +8,7 @@ datasource db {
 }
 
 model Company {
+  laborImportFiles LaborImportFile[]
   tradeReductions TradeReduction[]
   tradeCancellations TradeCancellation[]
   tradeWorkbookFiles TradeWorkbookFile[]
@@ -72,6 +73,7 @@ enum ProjectStatus {
 }
 
 model Project {
+  laborImports LaborImportRow[]
   cashPlans CashPlan[]
   stockLocations StockLocation[]
   vehicleAssignments VehicleAssignment[]
@@ -170,6 +172,7 @@ enum CashCertainty {
 }
 
 model CashPlan {
+  refundCancellation TradeCancellation? @relation("CancellationRefund")
   vehicleExpense VehicleExpense?
   replacedById String?
   replacedBy CashPlan? @relation("CashPlanReplacement",fields:[replacedById],references:[id],onDelete:Restrict)
@@ -728,6 +731,7 @@ enum LaborRole {
   SIGNAL
 }
 model Employee {
+  laborImports LaborImportRow[]
   reporting PayrollReporting[]
   payeeBank String?
   payeeAccount String?
@@ -765,6 +769,7 @@ model EmploymentRate {
   @@index([employeeId, role, effectiveDate])
 }
 model WorkRecord {
+  importSource LaborImportWork?
   id String @id @default(cuid())
   employeeId String
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
@@ -1234,6 +1239,9 @@ model PartnerIdentityChange {
 }
 
 model TradeCancellation {
+  refundPlanId String? @unique
+  refundPlan CashPlan? @relation("CancellationRefund",fields:[refundPlanId],references:[id],onDelete:Restrict)
+  paymentBasis String?
   replacements TradeWorkbookSource[]
   id String @id @default(cuid())
   companyId String
@@ -1319,4 +1327,47 @@ model TradeReductionChange {
   operation String
   reason String
   createdAt DateTime @default(now())
+}
+
+model LaborImportFile {
+ id String @id @default(cuid())
+ companyId String
+ company Company @relation(fields:[companyId],references:[id],onDelete:Restrict)
+ checksum String
+ fileName String
+ mediaType String
+ content Bytes
+ createdAt DateTime @default(now())
+ rows LaborImportRow[]
+ @@unique([companyId,checksum])
+}
+model LaborImportRow {
+ id String @id @default(cuid())
+ fileId String
+ file LaborImportFile @relation(fields:[fileId],references:[id],onDelete:Restrict)
+ employeeId String
+ employee Employee @relation(fields:[employeeId],references:[id],onDelete:Restrict)
+ projectId String
+ project Project @relation(fields:[projectId],references:[id],onDelete:Restrict)
+ period String
+ sheet String
+ sourceRow Int
+ role LaborRole
+ source Json
+ requestId String @unique
+ fingerprint String
+ reason String
+ createdAt DateTime @default(now())
+ works LaborImportWork[]
+ @@unique([fileId,sheet,sourceRow,projectId,role])
+ @@index([fileId,sheet,sourceRow])
+ @@index([employeeId,period])
+}
+model LaborImportWork {
+ id String @id @default(cuid())
+ importId String
+ import LaborImportRow @relation(fields:[importId],references:[id],onDelete:Restrict)
+ workId String @unique
+ work WorkRecord @relation(fields:[workId],references:[id],onDelete:Restrict)
+ workVersion Int
 }

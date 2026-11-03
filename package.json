@@ -26,20 +26,29 @@
     "office:prepare": "node --env-file=.env.office scripts/prepare-office.mjs",
     "build:office": "node --env-file=.env.office node_modules/next/dist/bin/next build",
     "office:backup": "node --env-file=.env.office scripts/database-transfer.mjs backup",
-    "office:restore": "node --env-file=.env.office scripts/database-transfer.mjs restore"
+    "office:restore": "node --env-file=.env.office scripts/database-transfer.mjs restore",
+    "prepare:ocr": "node scripts/prepare-ocr-assets.mjs",
+    "prebuild": "npm run prepare:ocr",
+    "prebuild:office": "npm run prepare:ocr",
+    "predev": "npm run prepare:ocr"
   },
   "dependencies": {
+    "@e965/xlsx": "0.20.3",
     "@noble/hashes": "2.0.1",
     "@prisma/adapter-pg": "^7.2.0",
     "@prisma/client": "^7.2.0",
+    "@tesseract.js-data/eng": "1.0.0",
+    "@tesseract.js-data/kor": "1.0.0",
     "dotenv": "^18.0.9",
     "exceljs": "^4.4.0",
     "html-to-image": "^1.11.13",
     "jszip": "^3.10.2",
     "next": "16.4.3",
+    "pdfjs-dist": "6.5.438",
     "pg": "^8.23.1",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "tesseract.js": "7.0.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",

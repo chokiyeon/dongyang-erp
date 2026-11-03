@@ -52,3 +52,6 @@ next-env.d.ts
 *.pgdump
 
 !.env.office.example
+
+# Generated from pinned local OCR packages
+/public/ocr/
