@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@/generated/prisma/client';
 import { COMPANY_ID } from './constants';
 import { InputError, text, date, revision } from './validation';
-import { prepareTradeCancellation } from './trade-cancellations';
+import { prepareTradeCancellation,hasActiveReissue } from './trade-cancellations';
 import { normalizeBusinessNumber } from './business-number';
 import { acquirePeriodReviewLock, assertPeriodsOpen } from './period-guard';
 import { koreanToday } from './forecast';
@@ -108,7 +108,7 @@ export async function undoPaidCancellation(tx: Prisma.TransactionClient, data: F
         throw new InputError('이미 환급한 실적이나 변경 이력이 있습니다. 환급 내역을 먼저 확인하세요.');
     const { document: d, basis } = await paidOriginal(tx, c.originalDocumentId);
     if(await tx.tradeCancellationChange.count({where:{cancellationId:c.id,operation:LATER_CANCELLATION}}))await assertPeriodsOpen(tx,c.issuedDate,c.refundPlan.plannedDate);else await assertPeriodsOpen(tx, d.issuedDate, c.issuedDate, c.refundPlan.plannedDate, ...d.links.map(l => l.transaction.tradedDate));
-    if (await tx.tradeWorkbookSource.count({ where: { replacesCancellationId: c.id } }))
+    if (await hasActiveReissue(tx,c.id))
         throw new InputError('재발급 이력을 먼저 확인하세요.');
     if (await tx.tradeDocument.count({ where: { companyId: COMPANY_ID, taxApprovalNumber: c.originalApproval, voidedAt: null, id: { not: d.id } } }))
         throw new InputError('같은 승인번호의 활성 청구가 있습니다.');

@@ -1,4 +1,4 @@
-import {LATER_CANCELLATION,assertCreditBalance} from "./trade-period";
+import {assertCreditBalance} from "./trade-period";
 import {createHash} from 'node:crypto';
 import type {Prisma,PrismaClient} from '@/generated/prisma/client';
 import {COMPANY_ID} from './constants';
@@ -57,9 +57,13 @@ export async function cancellationCandidates(db:PrismaClient,input:{kind:string;
  const rows=await db.tradeDocument.findMany({where:{companyId:COMPANY_ID,kind,voidedAt:null,settledAmount:0,cashPlanId:null,monthlyPayment:null,evidence:'TAX_INVOICE',taxApprovalNumber:{not:null},issuedDate:{gte:from,lt:to},grossAmount:(-BigInt(input.gross)).toString(),supplyAmount:(-BigInt(input.supply)).toString(),taxAmount:(-BigInt(input.tax)).toString(),partner:{businessNumber}},select:{id:true,reference:true,title:true,version:true,taxApprovalNumber:true,issuedDate:true},orderBy:[{issuedDate:'desc'},{id:'desc'}],take:101});if(rows.length>100)throw new InputError('일치 후보가 많습니다. 청구 목록에서 원본을 먼저 확인하세요.');return rows.map(r=>({...r,issuedDate:r.issuedDate.toISOString().slice(0,10)}));
 }
 
+export function reissueRefundReady(plan:{companyId:string;plannedAmount:{toFixed(n:number):string};completedAt:Date|null;settlements:{amount:{toFixed(n:number):string};bankTransactionId:string|null}[]}|null){
+ if(!plan)return true;
+ const planned=BigInt(plan.plannedAmount.toFixed(0));return plan.companyId===COMPANY_ID&&Boolean(plan.completedAt)&&planned>0n&&plan.settlements.every(s=>Boolean(s.bankTransactionId)&&BigInt(s.amount.toFixed(0))>0n)&&plan.settlements.reduce((v,s)=>v+BigInt(s.amount.toFixed(0)),0n)===planned;
+}
 export async function replacementCandidates(db:PrismaClient|Prisma.TransactionClient,input:{kind:string;date:string;businessNumber:string}){
  const kind=input.kind==='SALE'?'SALE':input.kind==='PURCHASE'?'PURCHASE':null,issued=date(input.date,'재발급 작성일'),businessNumber=normalizeBusinessNumber(input.businessNumber);if(!kind||!issued||!businessNumber)throw new InputError('재발급 원본의 구분·작성일·사업자번호를 확인하세요.');
- const first=new Date(Date.UTC(issued.getUTCFullYear(),issued.getUTCMonth(),1)),next=new Date(Date.UTC(issued.getUTCFullYear(),issued.getUTCMonth()+1,1));const rows=await db.tradeCancellation.findMany({where:{companyId:COMPANY_ID,voidedAt:null,refundPlanId:null,changes:{none:{operation:LATER_CANCELLATION}},issuedDate:{gte:first,lt:next},originalDocument:{companyId:COMPANY_ID,kind,voidedAt:{not:null},partner:{businessNumber}}},include:{originalDocument:{select:{reference:true,title:true}}},orderBy:[{issuedDate:'desc'},{id:'desc'}],take:101});if(rows.length>100)throw new InputError('재발급 연결 후보가 많습니다. 원본을 먼저 확인하세요.');return rows.map(r=>({id:r.id,reference:r.originalDocument.reference,title:r.originalDocument.title,version:r.version,taxApprovalNumber:r.taxApprovalNumber,issuedDate:r.issuedDate.toISOString().slice(0,10)}));
+ const next=new Date(Date.UTC(issued.getUTCFullYear(),issued.getUTCMonth()+1,1));const rows=await db.tradeCancellation.findMany({where:{companyId:COMPANY_ID,voidedAt:null,issuedDate:{lt:next},originalDocument:{companyId:COMPANY_ID,kind,voidedAt:{not:null},partner:{businessNumber}}},include:{originalDocument:{select:{reference:true,title:true}}},orderBy:[{issuedDate:'desc'},{id:'desc'}],take:101});if(rows.length>100)throw new InputError('재발급 연결 후보가 많습니다. 원본을 먼저 확인하세요.');return rows.map(r=>({id:r.id,reference:r.originalDocument.reference,title:r.originalDocument.title,version:r.version,taxApprovalNumber:r.taxApprovalNumber,issuedDate:r.issuedDate.toISOString().slice(0,10)}));
 }
 
 export async function hasActiveReissue(db:PrismaClient|Prisma.TransactionClient,cancellationId:string){

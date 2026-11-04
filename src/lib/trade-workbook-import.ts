@@ -52,11 +52,9 @@ export async function importTradeWorkbookRow(tx:Prisma.TransactionClient,source:
  if(partner.businessNumber!==sourceBusiness)throw new InputError('선택한 거래처와 원본의 사업자등록번호가 다릅니다. 연결 거래처를 다시 확인하세요.');
  if(values.replacesCancellationId){
   const cancelled=await tx.tradeCancellation.findFirst({where:{id:values.replacesCancellationId,companyId:COMPANY_ID,voidedAt:null},include:{originalDocument:true}});
-  if(cancelled&&await tx.tradeCancellationChange.count({where:{cancellationId:cancelled.id,operation:'REGISTER_LATER'}}))throw new InputError('다른 달 정산 증빙의 재발급 승계는 별도 기간 정산이 필요합니다.');
-  if(cancelled?.refundPlanId)throw new InputError('환급 연결 전액취소는 재발급 승계에 사용할 수 없습니다. 별도 정산을 확인하세요.');
   if(!cancelled||!cancelled.originalDocument.voidedAt||cancelled.originalDocument.companyId!==COMPANY_ID)throw new InputError('유효한 전액취소 원본을 선택하세요.');
   const cells=Array.isArray(cancelled.cells)?cancelled.cells:[];
-  if(cancelled.originalDocument.kind!==row.kind||cancelled.issuedDate.toISOString().slice(0,7)!==row.date.slice(0,7)||normalizeBusinessNumber(String(cells[row.kind==='SALE'?9:4]??''))!==sourceBusiness)throw new InputError('재발급 증빙의 구분·사업자번호·같은 달의 작성일을 확인하세요.');
+  if(cancelled.originalDocument.kind!==row.kind||cancelled.issuedDate.toISOString().slice(0,7)>row.date.slice(0,7)||normalizeBusinessNumber(String(cells[row.kind==='SALE'?9:4]??''))!==sourceBusiness)throw new InputError('재발급 증빙의 구분·사업자번호와 취소 작성월 이후의 작성일을 확인하세요.');
  }
  const importReason=values.sourceConflictConfirmed?`[충돌 원본 선택] ${values.reason}`:values.reason;
  const form=new FormData();for(const [key,value]of Object.entries({requestId:values.requestId,version:'0',reference:values.reference,title:values.title,partnerId:values.partnerId,projectId:values.projectId,issuedDate:row.date,dueDate:values.dueDate,supplyAmount:row.supply,taxAmount:row.tax,kind:row.kind,taxApprovalNumber:row.approval,taxKind:values.taxKind,evidence:'TAX_INVOICE',inputVatReview:'PENDING',proofConfirmed:values.proofConfirmed?'on':'',dueMode:row.kind==='PURCHASE'?values.dueMode:'MANUAL',paymentMethod:values.paymentMethod,profitCategory:values.profitCategory,companyExpense:values.companyExpense?'on':'',reason:importReason,note:`원본 이관: ${row.sheet} ${row.row}행 · 수금/결재 표기는 실적으로 자동 반영하지 않음`}))form.set(key,value);

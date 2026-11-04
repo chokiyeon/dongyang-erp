@@ -82,7 +82,7 @@ test('기지급 매입·매출 전액취소는 원 지급을 보존하고 다음
         assert.equal((await tx.bankTransaction.findUniqueOrThrow({ where: { id: x.bank.id } })).bankBalance?.toFixed(0), '99999999999999999999');
         const link = await tx.tradeBankLink.findFirstOrThrow({ where: { documentId: x.d.id, voidedAt: null } });
         await assert.rejects(unlinkTradeBank(tx, form({ linkId: link.id, version: String((await x.current()).version), reason: '원 지급 해제 시도' })), /원 지급/);
-        assert.ok(!(await replacementCandidates(tx, { kind, date: '2026-10-20', businessNumber: '0012345678' })).some(v => v.id === c.id));
+        assert.ok((await replacementCandidates(tx, { kind, date: '2026-10-20', businessNumber: '0012345678' })).some(v => v.id === c.id));
         await assert.rejects(amendCashSchedule(tx, form({ planId: p.id, version: String(p.version), requestId: randomUUID(), reason: '환급 금액 변경 시도' })), /원본에 연결/);
         const refund = await tx.bankTransaction.create({ data: { accountId: x.account.id, tradedDate: new Date('2026-11-01'), direction: p.direction, amount: '400', description: '합성 첫 환급' } });
         const settle = () => form({ planId: p.id, version: String(p.version), requestId: randomUUID(), bankTransactionId: refund.id, amount: '400', note: '수정 원본 및 환급 통장 대조' });
