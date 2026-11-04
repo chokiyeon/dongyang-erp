@@ -63,7 +63,7 @@ export async function settleCashPlan(tx: Prisma.TransactionClient, data: FormDat
     throw new InputError("이미 사용된 요청입니다. 화면을 새로 열어 주세요.");
   }
   await assertPeriodsOpen(tx,processedDate);
-  const plan = await tx.cashPlan.findFirst({ where: { id: planId, companyId: COMPANY_ID }, include: { settlements: true, issuedNote: true, receivedNote: true, tradeDocument:true,vehicleExpense:true } });
+  const plan = await tx.cashPlan.findFirst({ where: { id: planId, companyId: COMPANY_ID }, include: { settlements: true, issuedNote: true, receivedNote: true, tradeDocument:true,vehicleExpense:true,refundCancellation:true } });
   if (!plan || plan.version !== version || plan.completedAt) throw new InputError("이미 처리되었거나 변경된 내역입니다. 목록에서 다시 열어 주세요.");
   if (plan.tradeDocument) throw new InputError("매입·매출에 연결된 예정입니다. 매입·매출 화면에서 은행 연결을 처리하면 예산안에도 함께 반영됩니다.");
   if (plan.issuedNote) {
@@ -71,6 +71,18 @@ export async function settleCashPlan(tx: Prisma.TransactionClient, data: FormDat
   }
   if (plan.receivedNote) {
     if (plan.receivedNote.status !== "HELD" || !bank || inputAmount !== plan.receivedNote.amount.toFixed(0) || processedDate < plan.receivedNote.receivedDate) throw new InputError("수취어음 전액 입금은 수취일 이후 실제 은행 입금으로 액면금액 전액을 연결하세요. 할인은 수취어음대장에서 처리합니다.");
+  }
+  if (plan.refundCancellation) {
+    const c = plan.refundCancellation;
+    const {paidOriginal} = await import("./trade-paid-cancellations");
+    const {document: original, basis, lastPaid} = await paidOriginal(tx,c.originalDocumentId);
+    if(c.voidedAt || !original.voidedAt || basis!==c.paymentBasis || original.version!==c.documentVersionAfter || plan.replacedById || !plan.plannedAmount.equals(original.grossAmount) || plan.direction!==(original.kind==="PURCHASE"?"IN":"OUT")) throw new InputError("환급 원본과 원 지급 연결이 변경되었습니다. 수정증빙에서 확인하세요.");
+    if(!bank || !processedDate || processedDate<c.issuedDate || processedDate<lastPaid || BigInt(inputAmount)<=0n || !note) throw new InputError("환급은 수정증빙·원 지급일 이후의 실제 은행 거래로 금액과 사유를 입력하세요.");
+    const account=await tx.bankAccount.findUniqueOrThrow({where:{id:bank.accountId}});
+    if(account.currency!=="KRW" || await tx.tradeBankLink.count({where:{transactionId:bank.id,voidedAt:null}})) throw new InputError("다른 청구에 연결되지 않은 원화 환급 은행 거래를 선택하세요.");
+    const {assertBankNotVehicleMatched}=await import("./vehicle-cash");await assertBankNotVehicleMatched(tx,bank.id);
+    const remaining=cashSummary(plan).remaining;
+    if(BigInt(inputAmount)>remaining || finish && BigInt(inputAmount)!==remaining) throw new InputError("환급 잔액 이내로 연결하세요. 차액을 없애는 임의 완료는 할 수 없습니다.");
   }
   const summary = cashSummary(plan);
   const paid = BigInt(inputAmount);
@@ -107,7 +119,7 @@ export async function settleCashPlan(tx: Prisma.TransactionClient, data: FormDat
 
 export async function voidCashSettlement(tx: Prisma.TransactionClient, data: FormData) {
   const id = text(data, "settlementId", "처리 내역", true, 50); const version = revision(data); const reason = text(data, "reason", "처리 취소 사유", true, 300);
-  const settlement = await tx.cashSettlement.findFirst({ where: { id, plan: { companyId: COMPANY_ID } }, include: { bankTransaction: true, plan: { include: { issuedNote: true, receivedNote: true, tradeDocument:true,vehicleExpense:true } } } });
+  const settlement = await tx.cashSettlement.findFirst({ where: { id, plan: { companyId: COMPANY_ID } }, include: { bankTransaction: true, plan: { include: { issuedNote: true, receivedNote: true, tradeDocument:true,vehicleExpense:true,refundCancellation:true } } } });
   if (!settlement) throw new InputError("회사 처리 내역을 선택해 주세요."); if (settlement.voidedAt) return settlement.planId;
   if (settlement.plan.vehicleExpense) throw new InputError("차량 화면에서 지급 대조를 먼저 해제한 뒤 실적을 취소하세요.");
   if (settlement.plan.tradeDocument) throw new InputError("매입·매출 화면에서 은행 연결을 해제하면 예산안 실적도 함께 취소됩니다.");

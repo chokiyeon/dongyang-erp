@@ -10,14 +10,14 @@ export async function assertBankNotVehicleMatched(tx:Prisma.TransactionClient,ba
 export async function matchVehicleCash(tx:Prisma.TransactionClient,expense:{id:string;documentId:string|null;cashPlanId:string|null;payer:string;paymentStatus:string;amount:{toFixed(n:number):string};projectId:string|null;incurredDate:Date},cashPlanId:string|null){
  if(cashPlanId===expense.cashPlanId)throw new InputError("변경할 지급 실적을 선택하세요.");
  if(cashPlanId&&(expense.documentId||expense.payer!=="COMPANY"||expense.paymentStatus==="PAID"))throw new InputError("매입 미연결·회사 부담·수기 납부 확인 전의 차량 비용만 대조하세요.");
- const plans=await tx.cashPlan.findMany({where:{id:{in:[expense.cashPlanId,cashPlanId].filter((s):s is string=>Boolean(s))},companyId:COMPANY_ID},include:{vehicleExpense:true,tradeDocument:true,payroll:true,monthlyPayment:true,issuedNote:true,receivedNote:true,settlements:{where:{voidedAt:null},include:{bankTransaction:{include:{account:true,tradeLinks:{where:{voidedAt:null}}}}}}},orderBy:{id:"asc"}});
+ const plans=await tx.cashPlan.findMany({where:{id:{in:[expense.cashPlanId,cashPlanId].filter((s):s is string=>Boolean(s))},companyId:COMPANY_ID},include:{refundCancellation:true,vehicleExpense:true,tradeDocument:true,payroll:true,monthlyPayment:true,issuedNote:true,receivedNote:true,settlements:{where:{voidedAt:null},include:{bankTransaction:{include:{account:true,tradeLinks:{where:{voidedAt:null}}}}}}},orderBy:{id:"asc"}});
  for(const id of[expense.cashPlanId,cashPlanId].filter(Boolean))if(!plans.some(p=>p.id===id))throw new InputError("회사 지급 실적을 다시 조회하세요.");
  const banks=new Map<string,NonNullable<(typeof plans)[number]["settlements"][number]["bankTransaction"]>>();
  for(const p of plans){
   // An old closed expense can be paid in an open month. Protect the actual payment dates.
   await assertPeriodsOpen(tx,...p.settlements.map(s=>s.processedDate));
   if(p.id===cashPlanId){
-   if(p.replacedById||p.vehicleExpense||p.tradeDocument||p.payroll||p.monthlyPayment||p.issuedNote||p.receivedNote||p.direction!=="OUT"||!p.completedAt||p.projectId!==expense.projectId||p.plannedAmount.toFixed(0)!==expense.amount.toFixed(0))throw new InputError("금액·공사가 같은 완료된 일반 지급 실적만 선택하세요. 다른 원본에 연결된 실적은 제외합니다.");
+   if(p.replacedById||p.refundCancellation||p.vehicleExpense||p.tradeDocument||p.payroll||p.monthlyPayment||p.issuedNote||p.receivedNote||p.direction!=="OUT"||!p.completedAt||p.projectId!==expense.projectId||p.plannedAmount.toFixed(0)!==expense.amount.toFixed(0))throw new InputError("금액·공사가 같은 완료된 일반 지급 실적만 선택하세요. 다른 원본에 연결된 실적은 제외합니다.");
    const sum=p.settlements.reduce((a,s)=>a+BigInt(s.amount.toFixed(0)),0n);
    if(!p.settlements.length||sum!==BigInt(expense.amount.toFixed(0))||p.settlements.some(s=>!s.bankTransaction||s.bankTransaction.account.companyId!==COMPANY_ID||s.bankTransaction.account.currency!=="KRW"||s.bankTransaction.internalTransfer||s.bankTransaction.direction!=="OUT"||s.bankTransaction.tradeLinks.length||s.amount.lessThanOrEqualTo(0)||s.processedDate<expense.incurredDate||s.processedDate.toISOString().slice(0,10)>koreanToday()||s.processedDate.getTime()!==s.bankTransaction.tradedDate.getTime()))throw new InputError("고지서 발생일 이후의 실제 은행 출금 전액과 대조하세요. 수기 실적·차액 완료·매입에 쓴 출금은 사용할 수 없습니다.");
   }
