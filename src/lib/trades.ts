@@ -1,3 +1,4 @@
+import {normalizeBusinessNumber} from "./business-number";
 import {assertNoCancellationApproval} from "./trade-approval-guard";
 import {normalizeTaxApproval} from "./trade-identifiers";
 import {invalidateSourceCosts} from "./source-cost-invalidation";
@@ -63,6 +64,16 @@ export async function saveTradeDocument(tx: Prisma.TransactionClient, data: Form
   if (previous && previous.settledAmount.toFixed(0) !== "0" && (previous.grossAmount.toFixed(0) !== values.grossAmount || previous.partnerId !== partnerId || previous.projectId !== projectId)) throw new InputError("금액·거래처·현장을 바꾸려면 은행 연결을 먼저 해제해 주세요.");
   const partner = payPartner;
   if (!partner || (!partner.active && previous?.partnerId !== partner.id)) throw new InputError("구분에 맞는 사용 중인 회사 거래처를 선택해 주세요.");
+  if(previous){
+    const source=await tx.tradeWorkbookSource.findUnique({where:{documentId:id},include:{replacesCancellation:{include:{originalDocument:true}}}}),cancelled=source?.replacesCancellation;
+    if(cancelled){
+      const cells=Array.isArray(cancelled.cells)?cancelled.cells:[],business=normalizeBusinessNumber(String(cells[kind==='SALE'?9:4]??''));
+      const validParent=cancelled.companyId===COMPANY_ID&&!cancelled.voidedAt&&cancelled.originalDocument.voidedAt&&cancelled.originalDocument.kind===kind;
+      const validBusiness=Boolean(business)&&business===normalizeBusinessNumber(partner.businessNumber??'');
+      const validDate=issuedDate.toISOString().slice(0,7)>=cancelled.issuedDate.toISOString().slice(0,7);
+      if(!validParent||!validBusiness||!validDate||evidence!=='TAX_INVOICE'||!effectiveApproval)throw new InputError("재발급 연결 원본의 구분·사업자·작성월·세금계산서 관계를 유지해야 합니다. 원본 관계부터 확인하세요.");
+    }
+  }
   if (projectId) { const project = await tx.project.findFirst({ where: { id: projectId, companyId: COMPANY_ID } }); if (!project || (!project.active && previous?.projectId !== project.id)) throw new InputError("사용 중인 회사 현장을 선택해 주세요."); }
   if (previous && previous.kind !== kind) throw new InputError("매입·매출 구분은 수정할 수 없습니다. 취소 후 새로 등록해 주세요.");
   if(previous&&await tx.tradeReduction.count({where:{originalDocumentId:id,companyId:COMPANY_ID,voidedAt:null}})&&["supplyAmount","taxAmount","grossAmount","partnerId","projectId","issuedDate","taxApprovalNumber","taxKind","evidence","companyExpense"].some(key=>{const old=previous[key as keyof typeof previous],next=key==="taxApprovalNumber"&&values.taxApprovalNumber===undefined?old:values[key as keyof typeof values];return String(old instanceof Date?old.toISOString():old??"")!==String(next instanceof Date?next.toISOString():next??"");}))throw new InputError("감액 증빙이 연결된 청구입니다. 원본 금액·거래처·공사·세무 구분은 감액 이력부터 확인하세요.");

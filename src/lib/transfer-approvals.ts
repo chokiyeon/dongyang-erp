@@ -1,3 +1,4 @@
+import {acquirePeriodReviewLock} from "./period-guard";
 import {createHash} from "node:crypto";
 import type {Prisma,PrismaClient} from "@/generated/prisma/client";
 import {COMPANY_ID} from "./constants";
@@ -9,6 +10,7 @@ export function transferBasis(rows:TransferPreparationRow[]){return createHash("
 function selectedIds(raw:string){let v:unknown;try{v=JSON.parse(raw);}catch{throw new InputError("송금 대상을 다시 선택하세요.");}if(!Array.isArray(v)||!v.length||v.length>200||v.some(id=>typeof id!=="string"||id.length>80)||new Set(v).size!==v.length)throw new InputError("중복 없이 1~200건의 송금 대상을 선택하세요.");return v as string[];}
 export async function approvalCurrent(db:PrismaClient|Prisma.TransactionClient,until:string,rows:TransferPreparationRow[],basis:string){const current=await transferPreparation(db,until);const ids=new Set(rows.map(r=>r.id));const selected=current.ready.filter(r=>ids.has(r.id));return selected.length===rows.length&&transferBasis(selected)===basis;}
 export async function saveTransferApproval(tx:Prisma.TransactionClient,op:"create"|"approve"|"reject"|"void",d:FormData){
+ await acquirePeriodReviewLock(tx);
  const requestId=text(d,"requestId","요청",true,50);const reason=text(d,"reason","승인 기록 사유",true,500);if(!/^[a-f0-9-]{36}$/i.test(requestId))throw new InputError("화면을 다시 열어 주세요.");const fingerprint=createHash("sha256").update(JSON.stringify({op,values:Object.fromEntries([...d.entries()].sort(([a],[b])=>a.localeCompare(b)))})).digest("hex");const replay=await tx.transferApprovalChange.findUnique({where:{requestId},include:{approval:true}});if(replay){if(replay.approval.companyId!==COMPANY_ID||replay.fingerprint!==fingerprint)throw new InputError("다른 내용에 사용한 요청입니다.");return replay.approvalId;}
  let id="";let previous:Prisma.InputJsonValue={};let next:Prisma.InputJsonValue={};
  if(op==="create"){
