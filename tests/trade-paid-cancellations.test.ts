@@ -1,3 +1,6 @@
+import {amendRefundSchedule,REFUND_SCHEDULE_OPERATION,refundScheduleAt} from '../src/lib/refund-schedule';
+import {approvalCurrent,transferBasis} from '../src/lib/transfer-approvals';
+import {koreanToday} from '../src/lib/forecast';
 import 'dotenv/config';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -168,11 +171,19 @@ test('동시 기지급 취소 요청은 환급 예정을 한 번만 만들고 �
         assert.equal(results.filter(r => !r.replayed).length, 1);
         const c = await db.tradeCancellation.findUniqueOrThrow({ where: { id: results[0].cancellationId } });
         fileId = c.fileId;
-        const p = await db.cashPlan.findUniqueOrThrow({ where: { id: c.refundPlanId! } });
+        let p = await db.cashPlan.findUniqueOrThrow({ where: { id: c.refundPlanId! } });
         plans.push(p.id);
         const doc = await db.tradeDocument.findUniqueOrThrow({ where: { id: x.d.id } });
         if (doc.cashPlanId)
             plans.push(doc.cashPlanId);
+        const amend=(due:string)=>form({cancellationId:c.id,planId:p.id,version:String(p.version),requestId:randomUUID(),plannedDate:due,reason:'동시 환급 일정 협의',confirmed:'on'});
+        const schedules=await Promise.allSettled([db.$transaction(tx=>amendRefundSchedule(tx,amend('2026-12-10'))),db.$transaction(tx=>amendRefundSchedule(tx,amend('2026-12-15')))]);
+        assert.equal(schedules.filter(r=>r.status==='fulfilled').length,1);
+        p=await db.cashPlan.findUniqueOrThrow({where:{id:p.id}});
+        const repeated=amend('2027-01-05');
+        await Promise.all([db.$transaction(tx=>amendRefundSchedule(tx,repeated)),db.$transaction(tx=>amendRefundSchedule(tx,repeated))]);
+        assert.equal(await db.financeChange.count({where:{entityId:p.id,operation:REFUND_SCHEDULE_OPERATION}}),2);
+        p=await db.cashPlan.findUniqueOrThrow({where:{id:p.id}});
         const b = await db.bankTransaction.create({ data: { accountId: x.account.id, tradedDate: new Date('2026-11-01'), direction: 'IN', amount: '1400', description: '동시 합성 환급' } });
         const post = () => form({ planId: p.id, version: String(p.version), requestId: randomUUID(), bankTransactionId: b.id, amount: '300', note: '동시 환급 합성 검증' });
         const calls = await Promise.allSettled([db.$transaction(tx => settleCashPlan(tx, post())), db.$transaction(tx => settleCashPlan(tx, post()))]);
@@ -192,6 +203,7 @@ test('동시 기지급 취소 요청은 환급 예정을 한 번만 만들고 �
             const doc = await db.tradeDocument.findUnique({ where: { id: x.d.id } });
             if (doc?.cashPlanId && !plans.includes(doc.cashPlanId))
                 plans.push(doc.cashPlanId);
+            await db.financeChange.deleteMany({where:{companyId:COMPANY_ID,entityId:{in:plans},operation:REFUND_SCHEDULE_OPERATION}});
             await db.cashSettlement.deleteMany({ where: { planId: { in: plans } } });
             if (c)
                 await db.tradeCancellation.delete({ where: { id: c.id } });
@@ -268,4 +280,43 @@ test('일부 지급 취소는 지급액·예산안이 불일치하거나 별도�
     await assert.rejects(registerPaidCancellation(tx,source),/은행 지급 대조/);
     assert.equal(await tx.tradeCancellation.count({where:{originalDocumentId:d.id}}),0);
     assert.equal((await x.current()).voidedAt,null);
+}));
+
+test('남은 환급 일정 변경은 실적·금액을 보존하고 이전 월 전달본과 기존 승인 기준을 보호한다',async()=>rollbackTest(async tx=>{
+    const x=await setup(tx,'SALE',true,'400'),saved=await registerPaidCancellation(tx,await x.prepare());
+    const c=await tx.tradeCancellation.findUniqueOrThrow({where:{id:saved.cancellationId}});
+    const getPlan=()=>tx.cashPlan.findUniqueOrThrow({where:{id:c.refundPlanId!},include:{settlements:true}});
+    let plan=await getPlan();
+    const bank=await tx.bankTransaction.create({data:{accountId:x.account.id,tradedDate:new Date('2026-11-01'),direction:'OUT',amount:'100',description:'일정 변경 전 합성 환급'}});
+    await settleCashPlan(tx,form({planId:plan.id,version:String(plan.version),requestId:randomUUID(),bankTransactionId:bank.id,amount:'100',note:'실제 환급 대조'}));plan=await getPlan();
+    const october=await captureAccounting(tx,'2026-10');
+    const beforeApproval=(await transferPreparation(tx,'2026-11-03')).ready.filter(r=>r.id===`refund:${c.id}`);
+    assert.equal(beforeApproval.length,1);
+    const bankBefore=await tx.bankTransaction.findUniqueOrThrow({where:{id:bank.id}}),oldSettlements=JSON.stringify(plan.settlements);
+    // A closed original issue month does not block changing the current month's remaining schedule.
+    await tx.accountingPeriodLock.upsert({where:{companyId_period:{companyId:COMPANY_ID,period:'2026-10'}},create:{companyId:COMPANY_ID,period:'2026-10',packageId:'합성',digest:'합성',locked:true},update:{locked:true}});
+    const input={cancellationId:c.id,planId:plan.id,version:String(plan.version),requestId:randomUUID(),plannedDate:'2026-12-15',reason:'거래처 잔여 환급 예정일 협의',confirmed:'on'};
+    const change=form({...input,plannedAmount:'1',direction:'IN'});
+    await amendRefundSchedule(tx,change);await amendRefundSchedule(tx,change);plan=await getPlan();
+    assert.equal(plan.plannedDate.toISOString().slice(0,10),'2026-12-15');assert.equal(plan.plannedAmount.toFixed(0),'400');assert.equal(plan.direction,'OUT');assert.equal(cashSummary(plan).actual,100n);assert.equal(cashSummary(plan).remaining,300n);assert.equal(JSON.stringify(plan.settlements),oldSettlements);assert.deepEqual(await tx.bankTransaction.findUniqueOrThrow({where:{id:bank.id}}),bankBefore);
+    assert.equal(await tx.financeChange.count({where:{entityId:plan.id,operation:REFUND_SCHEDULE_OPERATION}}),1);
+    assert.equal(await approvalCurrent(tx,'2026-11-03',beforeApproval,transferBasis(beforeApproval)),false);
+    assert.equal((await captureAccounting(tx,'2026-10')).digest,october.digest);
+    const november=await captureAccounting(tx,'2026-11');assert.ok(november.snapshot.tables.find(t=>t.title==='환급 예정일 변경')?.rows.some(r=>r[1]===c.id&&r[4]==='2026-11-02'&&r[5]==='2026-12-15'&&r[6]==='100'&&r[7]==='300'));
+    assert.equal((await transferPreparation(tx,'2026-11-30')).ready.some(r=>r.id===`refund:${c.id}`),false);assert.equal((await transferPreparation(tx,'2026-12-31')).ready.find(r=>r.id===`refund:${c.id}`)?.amount,'300');
+    const forecast=buildForecast({baseDate:new Date('2026-10-31'),amount:{toFixed:()=> '10000'}},[plan],3);assert.equal(forecast.monthlyRows.find(r=>r.month==='2026-11')?.actualOut,100n);assert.equal(forecast.monthlyRows.find(r=>r.month==='2026-12')?.expectedOut,300n);
+    await assert.rejects(amendRefundSchedule(tx,form({...input,reason:'같은 요청의 다른 사유'})),/다른 내용/);
+    await assert.rejects(amendRefundSchedule(tx,form({...input,requestId:randomUUID(),plannedDate:'2026-12-20'})),/변경되었거나/);
+    await tx.accountingPeriodLock.update({where:{companyId_period:{companyId:COMPANY_ID,period:'2026-10'}},data:{locked:false}});
+}));
+
+test('환급 일정은 확인·마감·과거일·완료 상태를 검증하고 변경 이력을 월별로 복원한다',async()=>rollbackTest(async tx=>{
+    const x=await setup(tx,'PURCHASE',false),saved=await registerPaidCancellation(tx,await x.prepare());const c=await tx.tradeCancellation.findUniqueOrThrow({where:{id:saved.cancellationId}}),p=await tx.cashPlan.findUniqueOrThrow({where:{id:c.refundPlanId!}});
+    const input={cancellationId:c.id,planId:p.id,version:String(p.version),requestId:randomUUID(),plannedDate:'2026-12-15',reason:'합성 환급 일정 협의',confirmed:'on'};
+    await assert.rejects(amendRefundSchedule(tx,form({...input,confirmed:''})),/확인/);await assert.rejects(amendRefundSchedule(tx,form({...input,plannedDate:'2026-10-31'})),/오늘/);
+    await tx.accountingPeriodLock.upsert({where:{companyId_period:{companyId:COMPANY_ID,period:koreanToday().slice(0,7)}},create:{companyId:COMPANY_ID,period:koreanToday().slice(0,7),packageId:'합성',digest:'합성',locked:true},update:{locked:true}});await assert.rejects(amendRefundSchedule(tx,form(input)),/마감/);await tx.accountingPeriodLock.update({where:{companyId_period:{companyId:COMPANY_ID,period:koreanToday().slice(0,7)}},data:{locked:false}});
+    await tx.cashPlan.update({where:{id:p.id},data:{completedAt:new Date()}});await assert.rejects(amendRefundSchedule(tx,form(input)),/완료/);
+    assert.equal(await tx.financeChange.count({where:{entityId:p.id,operation:REFUND_SCHEDULE_OPERATION}}),0);
+    const history=[{previous:{plannedDate:'2026-11-02',planVersion:1},next:{plannedDate:'2026-12-15',effectiveDate:'2026-11-04',cancellationId:c.id,actualAmount:'100',remainingAmount:'300'}},{previous:{plannedDate:'2026-12-15',planVersion:4},next:{plannedDate:'2027-01-10',effectiveDate:'2026-12-20',cancellationId:c.id,actualAmount:'200',remainingAmount:'200'}}];
+    assert.equal(refundScheduleAt(new Date('2027-01-10'),history,'2026-10').toISOString().slice(0,10),'2026-11-02');assert.equal(refundScheduleAt(new Date('2027-01-10'),history,'2026-11').toISOString().slice(0,10),'2026-12-15');assert.equal(refundScheduleAt(new Date('2027-01-10'),history,'2026-12').toISOString().slice(0,10),'2027-01-10');
 }));

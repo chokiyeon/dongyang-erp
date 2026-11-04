@@ -1,3 +1,4 @@
+import {REFUND_SCHEDULE_OPERATION} from '../../src/lib/refund-schedule';
 import { test, expect } from '@playwright/test';
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
@@ -94,6 +95,25 @@ for(const paid of ['1100','400'])test(`기지급 ${paid}원 매출 취소 후 �
         expect(response.status()).toBe(200);
         const zip = await JSZip.loadAsync(await response.body()), hashes = await Promise.all(Object.keys(zip.files).filter(n => n.startsWith('files/')).map(async (n) => createHash('sha256').update(await zip.file(n)!.async('nodebuffer')).digest('hex')));
         expect(hashes).toContain(createHash('sha256').update(bytes).digest('hex'));
+        await page.goto(`/refunds?q=RF-${tag}`);
+        const pendingRow=page.locator('tbody tr').filter({hasText:`RF-${tag}`});
+        await expect(pendingRow).toHaveCount(1);await expect(pendingRow.locator('td').nth(8)).toHaveText(`${Number(paid)-Number(firstRefund)}원`);
+        await expect(pendingRow).toContainText('기한 경과');
+        await page.goto(`/trade-cancellations?view=${c.id}`);
+        await page.getByText('남은 환급 예정일 변경',{exact:true}).click();
+        await page.getByLabel('변경 환급 예정일').fill('2026-12-15');
+        await page.getByLabel('이미 환급한 금액과 남은 환급액을 확인했습니다.').check();
+        await page.getByLabel('환급 일정 변경 사유').fill('거래처 잔여 환급 일정 협의');
+        await page.getByRole('button',{name:'환급 예정일 변경 저장',exact:true}).click();
+        await expect(page.locator('.erp-workspace').getByRole('status')).toHaveText('환급 예정일을 변경하고 기존 실적과 남은 금액을 보존했습니다.');
+        await expect(page.locator('.erp-workspace')).toContainText('환급 예정일: 2026-12-15');
+        const revised=await db.cashPlan.findUniqueOrThrow({where:{id:planId},include:{settlements:true}});
+        expect(revised.plannedAmount.toFixed(0)).toBe(paid);expect(cashSummary(revised).actual).toBe(BigInt(firstRefund));
+        expect(cashSummary(revised).remaining).toBe(BigInt(Number(paid)-Number(firstRefund)));
+        await page.goto(`/refunds?q=RF-${tag}&until=2026-11-30`);await expect(page.locator('tbody tr').filter({hasText:`RF-${tag}`})).toHaveCount(0);
+        await page.goto(`/refunds?q=RF-${tag}&until=2026-12-31`);await expect(page.locator('tbody tr').filter({hasText:`RF-${tag}`})).toContainText('2026-12-15');
+        await page.goto('/transfer-preparation?until=2026-11-30');await expect(page.locator('.erp-workspace')).not.toContainText(`수정승인 ${approval}`);
+        await page.goto(`/trade-cancellations?view=${c.id}`);
         await page.getByText('입력 오류 정정 · 원본 청구 복원', { exact: true }).click();
         await page.getByLabel('수정증빙 등록 정정 사유').fill('잘못 연결한 합성 취소 정정');
         await page.getByRole('button', { name: '등록 정정·원본 복원 저장', exact: true }).click();
@@ -121,6 +141,7 @@ for(const paid of ['1100','400'])test(`기지급 ${paid}원 매출 취소 후 �
             fileId = c.fileId;
             planId = c.refundPlanId!;
         }
+        if(planId)await db.financeChange.deleteMany({where:{companyId:COMPANY_ID,entityId:planId,operation:REFUND_SCHEDULE_OPERATION}});
         if (planId)
             await db.cashSettlement.deleteMany({ where: { planId } });
         if (cancellationId) {
