@@ -7,7 +7,7 @@ import { koreanToday } from "@/lib/forecast";
 import { Section } from "@/components/fields";
 const won = (n: bigint) => `${n.toLocaleString("ko-KR")}원`;
 async function Content() {
-  await requireAdmin(); const company = await requireCompany(); const db = getDb(); const today = koreanToday(); const base = { companyId: company.id, voidedAt: null };
+  await requireAdmin(); const company = await requireCompany(); const db = getDb(); const today = koreanToday(); const base = {settledAmount:{lt:db.tradeDocument.fields.grossAmount}, companyId: company.id, voidedAt: null };
   const [byProject, byPartner, lateProject, latePartner, projects, partners, overdue] = await Promise.all([
     db.tradeDocument.groupBy({ by: ["projectId","kind"], where: base, _sum: { grossAmount: true, settledAmount: true } }),
     db.tradeDocument.groupBy({ by: ["partnerId","kind"], where: base, _sum: { grossAmount: true, settledAmount: true } }),

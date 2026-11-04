@@ -14,7 +14,7 @@ export async function purchaseCostBasis(db:PrismaClient|Prisma.TransactionClient
 // Allocate an invoice's gross unpaid balance once, including VAT, using reviewed cost weights.
 // The last component receives the rounding remainder; all project and common shares sum exactly.
 export function purchaseOutstandingShares(unpaid:bigint,common:bigint,entries:{projectId:string;amount:bigint}[]){
- const components=[...entries].sort((a,b)=>a.projectId.localeCompare(b.projectId));if(common>0n)components.push({projectId:"__company",amount:common});
+ unpaid=unpaid>0n?unpaid:0n;const components=[...entries].sort((a,b)=>a.projectId.localeCompare(b.projectId));if(common>0n)components.push({projectId:"__company",amount:common});
  const total=components.reduce((sum,e)=>sum+e.amount,0n);const shares=new Map<string,bigint>();if(total<=0n)return shares;
  let allocated=0n;for(const[eIndex,e]of components.entries()){const share=eIndex===components.length-1?unpaid-allocated:unpaid*e.amount/total;shares.set(e.projectId,share);allocated+=share;}return shares;
 }

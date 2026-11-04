@@ -18,7 +18,7 @@ async function Overview() {
     db.bankAccount.findMany({ where: { companyId: company.id, active: true }, orderBy: [{ bankName: "asc" }, { label: "asc" }] }),
     db.cashBaseline.findFirst({ where: { companyId: company.id }, orderBy: { revision: "desc" } }),
     db.cashPlan.findMany({ where: { companyId: company.id }, include: { settlements: true }, orderBy: { plannedDate: "asc" } }),
-    db.tradeDocument.groupBy({ by: ["kind"], where: { companyId: company.id, voidedAt: null }, _sum: { grossAmount: true, settledAmount: true } }),
+    db.tradeDocument.groupBy({ by: ["kind"], where: { companyId: company.id, voidedAt: null, settledAmount:{lt:db.tradeDocument.fields.grossAmount} }, _sum: { grossAmount: true, settledAmount: true } }),
   ]);
   const reconciliation=baseline?.reconciliationPeriod?await bankReconciliationMonth(db,company.id,baseline.reconciliationPeriod):null;
   const staleBaseline=Boolean(reconciliation&&(!reconciliation.ready||reconciliation.basis!==baseline?.reconciliationBasis));

@@ -1,3 +1,4 @@
+import {tradeRemaining} from "./trade-types";
 import { createHash } from "node:crypto";
 import { PROJECT_COST_CATEGORIES, REMAINING_COST_FIELDS, type ProjectCostCategoryKey } from "./project-profit-types";
 type Money = { toFixed(n: number): string };
@@ -24,5 +25,5 @@ export function summarizeProjectProfit(project: ProfitProject, documents: Profit
   const expectedProfit = ready ? BigInt(project.contractAmount!.toFixed(0))-expectedCost! : null;
   const revenue = project.contractAmount ? BigInt(project.contractAmount.toFixed(0)) : null;
   const margin = expectedProfit !== null && revenue !== null && revenue > 0n ? `${expectedProfit < 0n ? "-" : ""}${((expectedProfit < 0n ? -expectedProfit : expectedProfit)*1000n/revenue)/10n}.${((expectedProfit < 0n ? -expectedProfit : expectedProfit)*1000n/revenue)%10n}%` : null;
-  return { basis,costs,issues,missing,incurred,remaining,reviewed,ready,expectedCost,expectedProfit,margin,unpaid:documents.reduce((sum,d)=>sum+BigInt(d.grossAmount.toFixed(0))-BigInt(d.settledAmount.toFixed(0)),0n)+entries.reduce((sum,e)=>sum+(e.unpaidPurchase??0n),0n), categories:PROJECT_COST_CATEGORIES };
+  return { basis,costs,issues,missing,incurred,remaining,reviewed,ready,expectedCost,expectedProfit,margin,unpaid:documents.reduce((sum,d)=>sum+tradeRemaining(d.grossAmount.toFixed(0),d.settledAmount.toFixed(0)),0n)+entries.reduce((sum,e)=>sum+(e.unpaidPurchase??0n),0n), categories:PROJECT_COST_CATEGORIES };
 }

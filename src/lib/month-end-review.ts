@@ -10,7 +10,7 @@ export async function loadMonthEndReview(db:PrismaClient|Prisma.TransactionClien
  const read=async(tx:Prisma.TransactionClient)=>{
   const[bank,currentTrades,templates,recurring,payrollMissing,costs,plans,latest,payrollReports,reconciliation,payrollCostSources,vehicleExpenses,vehicleCostSources,tradeCostSources]=await Promise.all([
    tx.bankTransaction.count({where:{account:{companyId},tradedDate:range,internalTransfer:false,accountingCodeId:null}}),
-   tx.tradeDocument.findMany({where:{...tradeActiveAt(companyId,end),issuedDate:range},select:{reductions:{where:{issuedDate:{gt:end},changes:{some:{operation:LATER_REDUCTION}}},select:{voidedAt:true,supplyAmount:true,taxAmount:true,grossAmount:true}},links:{where:{voidedAt:null,transaction:{tradedDate:{lte:end}}},select:{amount:true}},supplyAmount:true,id:true,kind:true,proofConfirmed:true,inputVatReview:true,taxAmount:true,projectId:true,companyExpense:true,cashPlanId:true,settledAmount:true,grossAmount:true,paymentMethod:true}}),
+   tx.tradeDocument.findMany({where:{...tradeActiveAt(companyId,end),issuedDate:range},select:{reductions:{where:{issuedDate:{gt:end},changes:{some:{operation:LATER_REDUCTION}}},select:{paymentBasis:true,voidedAt:true,supplyAmount:true,taxAmount:true,grossAmount:true}},links:{where:{voidedAt:null,transaction:{tradedDate:{lte:end}}},select:{amount:true}},supplyAmount:true,id:true,kind:true,proofConfirmed:true,inputVatReview:true,taxAmount:true,projectId:true,companyExpense:true,cashPlanId:true,settledAmount:true,grossAmount:true,paymentMethod:true}}),
    tx.recurringPaymentTemplate.count({where:{companyId,active:true,startMonth:{lte:period},OR:[{endMonth:null},{endMonth:{gte:period}}],months:{none:{period,voidedAt:null}}}}),
    tx.monthlyPayment.count({where:{template:{companyId},period,voidedAt:null,OR:[{confirmed:false},{amount:null}]}}),
    tx.employee.count({where:{companyId,startDate:{lte:end},AND:[{OR:[{endDate:null},{endDate:{gte:start}}]},{OR:[{kind:"MONTHLY"},{kind:"DAILY",workRecords:{some:{workedDate:range,voidedAt:null}}}]}],payrolls:{none:{period,voidedAt:null}}}}),
@@ -24,7 +24,7 @@ export async function loadMonthEndReview(db:PrismaClient|Prisma.TransactionClien
    tx.sourceCostReview.findMany({where:{companyId,sourceType:"VEHICLE",active:true,needsReview:false},select:{sourceId:true}}),
    tx.sourceCostReview.findMany({where:{companyId,sourceType:"TRADE",active:true,needsReview:false},select:{sourceId:true}}),
   ]);
-  const trades=currentTrades.map(t=>t.reductions.length?{...restoreLaterAmounts(t,t.reductions.filter(r=>!r.voidedAt)),cashPlanId:null,settledAmount:t.links.reduce((v,l)=>v.plus(l.amount),t.settledAmount.minus(t.settledAmount))}:t);
+  const trades=currentTrades.map(t=>t.reductions.length?{...restoreLaterAmounts(t,t.reductions.filter(r=>!r.voidedAt)),cashPlanId:t.reductions.some(r=>r.paymentBasis)?t.cashPlanId:null,settledAmount:t.links.reduce((v,l)=>v.plus(l.amount),t.settledAmount.minus(t.settledAmount))}:t);
   const checks:MonthEndCheck[]=[
    {key:"bankBalance",title:"통장 월말 잔액 대조 미완료",count:reconciliation.rows.filter(row=>!row.ready).length,description:"사용 중지 통장도 포함합니다. 월초 잔액과 은행 월말 잔액을 대조하고 원본 변경 여부를 확인하세요.",href:`/bank-reconciliation?period=${period}`},
    {key:"bank",title:"은행 거래 회계코드 미분류",count:bank,description:"회사 통장 간 이체를 제외한 해당 월 은행 거래입니다.",href:"/ledger/classify"},

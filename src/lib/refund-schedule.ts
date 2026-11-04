@@ -28,14 +28,18 @@ export async function amendRefundSchedule(tx:Prisma.TransactionClient,data:FormD
     const plannedDate=date(text(data,'plannedDate','변경 환급 예정일',true,10),'변경 환급 예정일')!;
     if(!/^[0-9a-f-]{36}$/i.test(requestId))throw new InputError('환급 일정 변경 화면을 다시 여세요.');
     if(data.get('confirmed')!=='on')throw new InputError('이미 환급한 금액과 남은 환급액을 확인하세요.');
-    const fingerprint=createHash('sha256').update(JSON.stringify({id,planId,version,requestId,reason,plannedDate:plannedDate.toISOString().slice(0,10)})).digest('hex');
+    const isReduction=data.get('sourceType')==='REDUCTION';
+    const fingerprint=createHash('sha256').update(JSON.stringify({id,planId,version,requestId,reason,...(isReduction?{sourceType:'REDUCTION'}:{}),plannedDate:plannedDate.toISOString().slice(0,10)})).digest('hex');
     await acquirePeriodReviewLock(tx);
     const replay=await tx.financeChange.findUnique({where:{requestId}});
     if(replay){if(replay.companyId!==COMPANY_ID||replay.operation!==REFUND_SCHEDULE_OPERATION||replay.entityId!==planId||replay.fingerprint!==fingerprint)throw new InputError('다른 내용으로 사용한 환급 일정 변경 요청입니다.');return id;}
-    const c=await tx.tradeCancellation.findFirst({where:{id,companyId:COMPANY_ID},include:{refundPlan:{include:{settlements:{where:{voidedAt:null}}}}}}),p=c?.refundPlan;
+    const cancellation=isReduction?null:await tx.tradeCancellation.findFirst({where:{id,companyId:COMPANY_ID},include:{refundPlan:{include:{settlements:{where:{voidedAt:null}}}}}});
+    const reduction=isReduction?await tx.tradeReduction.findFirst({where:{id,companyId:COMPANY_ID},include:{refundPlan:{include:{settlements:{where:{voidedAt:null}}}}}}):null;
+    const c=cancellation??reduction,p=c?.refundPlan;
     if(!c||c.voidedAt||!p||p.id!==planId||p.companyId!==COMPANY_ID||p.version!==version||p.completedAt||p.replacedById)throw new InputError('환급 예정이 변경되었거나 완료되었습니다. 다시 조회하세요.');
-    const {document:original,basis,lastPaid}=await paidOriginal(tx,c.originalDocumentId);
-    if(!original.voidedAt||original.version!==c.documentVersionAfter||basis!==c.paymentBasis||!p.plannedAmount.equals(original.settledAmount)||p.direction!==(original.kind==='PURCHASE'?'IN':'OUT'))throw new InputError('취소 원본·원 지급액과 환급 예정을 먼저 대조하세요.');
+    let lastPaid:Date;
+    if(reduction){const{assertPaidReductionCurrent}=await import('./trade-paid-reductions');lastPaid=(await assertPaidReductionCurrent(tx,reduction.id)).lastPaid;}
+    else{const state=await paidOriginal(tx,c.originalDocumentId),original=state.document;lastPaid=state.lastPaid;if(!cancellation||!original.voidedAt||original.version!==cancellation.documentVersionAfter||state.basis!==cancellation.paymentBasis||!p.plannedAmount.equals(state.paidAmount)||p.direction!==(original.kind==='PURCHASE'?'IN':'OUT'))throw new InputError('취소 원본·원 지급액과 환급 예정을 먼저 대조하세요.');}
     const summary=cashSummary(p),effectiveDate=koreanToday();
     if(summary.actual<0n||summary.actual>=summary.planned||summary.remaining<=0n)throw new InputError('남은 환급 금액이 있는 예정만 변경하세요.');
     if(plannedDate.toISOString().slice(0,10)<effectiveDate||plannedDate<c.issuedDate||plannedDate<lastPaid)throw new InputError('변경 예정일은 오늘·수정증빙일·원 지급일 이후로 입력하세요.');
@@ -44,6 +48,6 @@ export async function amendRefundSchedule(tx:Prisma.TransactionClient,data:FormD
     await assertPeriodsOpen(tx,effectiveDate,plannedDate);
     const changed=await tx.cashPlan.updateMany({where:{id:p.id,companyId:COMPANY_ID,version,completedAt:null},data:{plannedDate,version:{increment:1}}});
     if(changed.count!==1)throw new InputError('환급 실적이나 일정이 변경되었습니다. 다시 조회하세요.');
-    await tx.financeChange.create({data:{companyId:COMPANY_ID,entityId:p.id,operation:REFUND_SCHEDULE_OPERATION,requestId,fingerprint,reason,previous:{plannedDate:p.plannedDate.toISOString().slice(0,10),planVersion:p.version},next:{plannedDate:plannedDate.toISOString().slice(0,10),planVersion:p.version+1,effectiveDate,cancellationId:c.id,actualAmount:summary.actual.toString(),remainingAmount:summary.remaining.toString(),plannedAmount:summary.planned.toString()}}});
+    await tx.financeChange.create({data:{companyId:COMPANY_ID,entityId:p.id,operation:REFUND_SCHEDULE_OPERATION,requestId,fingerprint,reason,previous:{plannedDate:p.plannedDate.toISOString().slice(0,10),planVersion:p.version},next:{plannedDate:plannedDate.toISOString().slice(0,10),planVersion:p.version+1,effectiveDate,cancellationId:c.id,...(isReduction?{sourceType:'REDUCTION'}:{}),actualAmount:summary.actual.toString(),remainingAmount:summary.remaining.toString(),plannedAmount:summary.planned.toString()}}});
     return c.id;
 }

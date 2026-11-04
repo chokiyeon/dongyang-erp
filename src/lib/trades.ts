@@ -117,7 +117,7 @@ export async function linkTradeBank(tx: Prisma.TransactionClient, data: FormData
   const transaction = await tx.bankTransaction.findFirst({ where: { id: transactionId, account: { companyId: COMPANY_ID }, internalTransfer: false }, include: { tradeLinks: { where: { voidedAt: null } } } });
   if (!transaction || transaction.direction !== (document.kind === "SALE" ? "IN" : "OUT")) throw new InputError("매출은 입금, 매입은 출금 거래를 선택해 주세요. 회사 계좌 간 이체는 연결할 수 없습니다.");
   await assertBankNotVehicleMatched(tx,transaction.id);
-  if(await tx.cashSettlement.count({where:{bankTransactionId:transaction.id,voidedAt:null,plan:{refundCancellation:{isNot:null}}}}))throw new InputError("환급에 연결한 은행 거래입니다. 환급 연결부터 확인하세요.");
+  if(await tx.cashSettlement.count({where:{bankTransactionId:transaction.id,voidedAt:null,plan:{OR:[{refundCancellation:{isNot:null}},{refundReduction:{isNot:null}}]}}}))throw new InputError("환급에 연결한 은행 거래입니다. 환급 연결부터 확인하세요.");
   await assertPeriodsOpen(tx,transaction.tradedDate);
   const used = transaction.tradeLinks.reduce((sum,r) => sum + BigInt(r.amount.toFixed(0)), 0n);
   if (BigInt(value) > BigInt(document.grossAmount.toFixed(0)) - BigInt(document.settledAmount.toFixed(0))) throw new InputError("연결 금액이 문서의 미수·미지급 잔액을 초과합니다.");
@@ -134,6 +134,8 @@ export async function unlinkTradeBank(tx: Prisma.TransactionClient, data: FormDa
   const link = await tx.tradeBankLink.findFirst({ where: { id, document: { companyId: COMPANY_ID }, transaction: { account: { companyId: COMPANY_ID } } }, include: { document: true, transaction: true } });
   if (!link) throw new InputError("회사 은행 연결을 선택해 주세요."); if (link.voidedAt) return link.documentId;
   if(await tx.tradeCancellation.count({where:{companyId:COMPANY_ID,originalDocumentId:link.documentId,voidedAt:null,refundPlanId:{not:null}}}))throw new InputError("환급 정산의 원 지급 기록입니다. 수정증빙 등록 정정부터 확인하세요.");
+  const paidCredits=await tx.tradeReduction.findMany({where:{companyId:COMPANY_ID,originalDocumentId:link.documentId,voidedAt:null,paymentBasis:{not:null}},select:{paidLinkIds:true}});
+  if(paidCredits.some(r=>!Array.isArray(r.paidLinkIds)||r.paidLinkIds.includes(link.id)))throw new InputError('기지급 부분 감액의 원 지급 기록입니다. 감액 등록 정정부터 확인하세요.');
   await assertPeriodsOpen(tx,link.transaction.tradedDate);
   const changed = await tx.tradeDocument.updateMany({ where: { id: link.documentId, version, companyId: COMPANY_ID, settledAmount: { gte: link.amount } }, data: { settledAmount: { decrement: link.amount }, version: { increment: 1 } } });
   if (changed.count !== 1) throw new InputError("문서가 변경되었습니다. 다시 조회해 주세요.");
