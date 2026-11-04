@@ -1,3 +1,4 @@
+import {LATER_CANCELLATION} from "./trade-period";
 import { createHash } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@/generated/prisma/client';
 import { COMPANY_ID } from './constants';
@@ -21,6 +22,12 @@ export async function preparePaidCancellation(data: FormData, fileName: string, 
         throw new InputError('환급 예정일은 수정증빙 작성일 이후로 입력하세요.');
     return { ...source, refundDueDate: due, fingerprint: digest({ operation: 'PAID_CANCELLATION', source: source.fingerprint, due: due.toISOString() }) };
 }
+export async function prepareLaterPaidCancellation(data:FormData,fileName:string,content:Uint8Array){
+    if(data.get('laterPaidCancellationConfirmed')!=='on')throw new InputError('다른 달 원본 보존과 실제 지급액의 별도 환급 정산을 확인하세요.');
+    const copied=new FormData();for(const[k,v]of data.entries())copied.append(k,v);copied.set('paidCancellationConfirmed','on');
+    const source=await preparePaidCancellation(copied,fileName,content);
+    return {...source,fingerprint:digest({operation:LATER_CANCELLATION,source:source.fingerprint})};
+}
 export async function paidOriginal(tx: Prisma.TransactionClient, id: string) {
     const d = await tx.tradeDocument.findFirst({ where: { id, companyId: COMPANY_ID }, include: { partner: true, workbookSource: true, monthlyPayment: true, links: { where: { voidedAt: null }, include: { transaction: { include: { account: true } } } }, cashPlan: { include: { settlements: { where: { voidedAt: null } } } } } });
     if (!d || d.monthlyPayment || !d.proofConfirmed || d.grossAmount.lte(0) || d.settledAmount.lte(0) || d.settledAmount.gt(d.grossAmount) || !d.links.length)
@@ -42,7 +49,7 @@ async function assertNoCostLinks(tx: Prisma.TransactionClient, id: string) {
     if (await tx.tradeReduction.count({ where: { originalDocumentId: id, companyId: COMPANY_ID, voidedAt: null } }) || await tx.sourceCostReview.count({ where: { companyId: COMPANY_ID, sourceType: 'TRADE', sourceId: id, active: true } }) || await tx.stockMovement.count({ where: { documentId: id, voidedAt: null } }) || await tx.vehicleExpense.count({ where: { documentId: id } }))
         throw new InputError('부분 감액·자재·차량·원가 배부 연결이 있어 별도 정산이 필요합니다.');
 }
-export async function registerPaidCancellation(tx: Prisma.TransactionClient, source: Awaited<ReturnType<typeof preparePaidCancellation>>) {
+export async function registerPaidCancellation(tx: Prisma.TransactionClient, source: Awaited<ReturnType<typeof preparePaidCancellation>>,scope:'SAME'|'LATER'='SAME') {
     await acquirePeriodReviewLock(tx);
     const replay = await tx.tradeCancellation.findUnique({ where: { requestId: source.requestId } });
     if (replay) {
@@ -55,11 +62,11 @@ export async function registerPaidCancellation(tx: Prisma.TransactionClient, sou
         throw new InputError('환급 예정일은 원 지급일 이후로 입력하세요.');
     if (d.voidedAt || d.version !== source.originalVersion)
         throw new InputError('원본 청구가 변경되었거나 취소되었습니다.');
-    await assertPeriodsOpen(tx, d.issuedDate, row.date, source.refundDueDate, ...d.links.map(l => l.transaction.tradedDate));
+    if(scope==='LATER')await assertPeriodsOpen(tx,row.date,source.refundDueDate);else await assertPeriodsOpen(tx, d.issuedDate, row.date, source.refundDueDate, ...d.links.map(l => l.transaction.tradedDate));
     if (row.date < d.issuedDate.toISOString().slice(0, 10))
         throw new InputError('수정증빙 작성일은 원본 작성일 이후여야 합니다.');
-    if (d.issuedDate.toISOString().slice(0, 7) !== row.date.slice(0, 7))
-        throw new InputError('다른 달의 수정증빙은 별도 기간 정산이 필요합니다.');
+    if(scope==='LATER'){if(d.issuedDate.toISOString().slice(0,7)>=row.date.slice(0,7))throw new InputError('수정 작성월보다 이전 달의 원본을 선택하세요.');}
+    else if (d.issuedDate.toISOString().slice(0, 7) !== row.date.slice(0, 7))throw new InputError('다른 달의 수정증빙은 별도 기간 정산이 필요합니다.');
     if (d.kind !== row.kind || d.evidence !== 'TAX_INVOICE' || !d.taxApprovalNumber || d.taxApprovalNumber === row.approval || BigInt(d.grossAmount.toFixed(0)) !== -BigInt(row.gross) || BigInt(d.supplyAmount.toFixed(0)) !== -BigInt(row.supply) || BigInt(d.taxAmount.toFixed(0)) !== -BigInt(row.tax))
         throw new InputError('원본 구분·서로 다른 승인번호·공급가액·세액·합계 전액을 대조하세요.');
     const cells = Array.isArray(d.workbookSource?.cells) ? d.workbookSource.cells : [], business = normalizeBusinessNumber(String(cells[row.kind === 'SALE' ? 9 : 4] ?? d.partner.businessNumber ?? ''));
@@ -80,7 +87,7 @@ export async function registerPaidCancellation(tx: Prisma.TransactionClient, sou
     const file = await tx.tradeWorkbookFile.upsert({ where: { companyId_checksum: { companyId: COMPANY_ID, checksum: source.checksum } }, create: { companyId: COMPANY_ID, checksum: source.checksum, fileName: source.fileName, content: Buffer.from(source.content) }, update: {}, select: { id: true } });
     const record = await tx.tradeCancellation.create({ data: { companyId: COMPANY_ID, originalDocumentId: d.id, originalApproval: d.taxApprovalNumber, taxApprovalNumber: row.approval, issuedDate: new Date(row.date), supplyAmount: row.supply, taxAmount: row.tax, grossAmount: row.gross, fileId: file.id, sheet: row.sheet, sourceRow: row.row, headers: source.headers, cells: row.raw, reason: source.reason, requestId: source.requestId, fingerprint: source.fingerprint, documentVersionAfter: d.version + 1, refundPlanId: plan.id, paymentBasis: basis } });
     await tx.tradeDocumentChange.create({ data: { documentId: d.id, requestId: source.requestId, fingerprint: source.fingerprint, previous: { voided: false, settledAmount: d.settledAmount.toFixed(0) }, next: { voided: true, cancellationId: record.id, refundPlanId: plan.id, paymentPreserved: true, unpaidCancelled:d.grossAmount.minus(d.settledAmount).toFixed(0), refundAmount:d.settledAmount.toFixed(0) }, reason: source.reason } });
-    await tx.tradeCancellationChange.create({ data: { cancellationId: record.id, requestId: source.requestId, fingerprint: source.fingerprint, operation: 'REGISTER_PAID', reason: source.reason } });
+    await tx.tradeCancellationChange.create({ data: { cancellationId: record.id, requestId: source.requestId, fingerprint: source.fingerprint, operation: scope==='LATER'?LATER_CANCELLATION:'REGISTER_PAID', reason: source.reason } });
     return { id: d.id, cancellationId: record.id, replayed: false };
 }
 export async function undoPaidCancellation(tx: Prisma.TransactionClient, data: FormData) {
@@ -99,7 +106,7 @@ export async function undoPaidCancellation(tx: Prisma.TransactionClient, data: F
     if (!c || c.voidedAt || c.version !== version || !c.refundPlan || c.refundPlan.settlements.length || c.refundPlan.replacedById)
         throw new InputError('이미 환급한 실적이나 변경 이력이 있습니다. 환급 내역을 먼저 확인하세요.');
     const { document: d, basis } = await paidOriginal(tx, c.originalDocumentId);
-    await assertPeriodsOpen(tx, d.issuedDate, c.issuedDate, c.refundPlan.plannedDate, ...d.links.map(l => l.transaction.tradedDate));
+    if(await tx.tradeCancellationChange.count({where:{cancellationId:c.id,operation:LATER_CANCELLATION}}))await assertPeriodsOpen(tx,c.issuedDate,c.refundPlan.plannedDate);else await assertPeriodsOpen(tx, d.issuedDate, c.issuedDate, c.refundPlan.plannedDate, ...d.links.map(l => l.transaction.tradedDate));
     if (await tx.tradeWorkbookSource.count({ where: { replacesCancellationId: c.id } }))
         throw new InputError('재발급 이력을 먼저 확인하세요.');
     if (await tx.tradeDocument.count({ where: { companyId: COMPANY_ID, taxApprovalNumber: c.originalApproval, voidedAt: null, id: { not: d.id } } }))
@@ -129,12 +136,12 @@ export async function paidCancellationCandidates(db: PrismaClient | Prisma.Trans
     supply: string;
     tax: string;
     businessNumber: string;
-}) {
+},scope:'SAME'|'LATER'='SAME') {
     const kind = input.kind === 'SALE' ? 'SALE' : input.kind === 'PURCHASE' ? 'PURCHASE' : null, issued = date(input.date, '수정일'), business = normalizeBusinessNumber(input.businessNumber);
     if (!kind || !issued || !business || ![input.gross, input.supply, input.tax].every(v => /^-?\d{1,20}$/.test(v)) || BigInt(input.gross) >= 0n || BigInt(input.supply) >= 0n || BigInt(input.tax) > 0n || BigInt(input.gross) !== BigInt(input.supply) + BigInt(input.tax))
         throw new InputError('기지급 취소 증빙을 확인하세요.');
     const from = new Date(Date.UTC(issued.getUTCFullYear(), issued.getUTCMonth(), 1)), to = new Date(Date.UTC(issued.getUTCFullYear(), issued.getUTCMonth() + 1, 1));
-    const rows = await db.tradeDocument.findMany({ where: { companyId: COMPANY_ID, kind, evidence: 'TAX_INVOICE', voidedAt: null, proofConfirmed: true, monthlyPayment: null, taxApprovalNumber: { not: null }, grossAmount: (-BigInt(input.gross)).toString(), supplyAmount: (-BigInt(input.supply)).toString(), taxAmount: (-BigInt(input.tax)).toString(), settledAmount: {gt:0,lte:(-BigInt(input.gross)).toString()}, issuedDate: { gte: from, lt: to }, partner: { businessNumber: business } }, select: { id: true, reference: true, title: true, version: true, taxApprovalNumber: true, issuedDate: true, settledAmount:true,grossAmount:true }, orderBy: [{ issuedDate: 'desc' }, { id: 'desc' }], take: 101 });
+    const rows = await db.tradeDocument.findMany({ where: { companyId: COMPANY_ID, kind, evidence: 'TAX_INVOICE', voidedAt: null, proofConfirmed: true, monthlyPayment: null, taxApprovalNumber: { not: null }, grossAmount: (-BigInt(input.gross)).toString(), supplyAmount: (-BigInt(input.supply)).toString(), taxAmount: (-BigInt(input.tax)).toString(), settledAmount: {gt:0,lte:(-BigInt(input.gross)).toString()}, issuedDate: scope==='LATER'?{lt:from}:{ gte: from, lt: to }, partner: { businessNumber: business } }, select: { id: true, reference: true, title: true, version: true, taxApprovalNumber: true, issuedDate: true, settledAmount:true,grossAmount:true }, orderBy: [{ issuedDate: 'desc' }, { id: 'desc' }], take: 101 });
     if (rows.length > 100)
         throw new InputError('기지급 취소 후보가 많습니다. 원본을 먼저 확인하세요.');
     return rows.map(r => ({ ...r, issuedDate: r.issuedDate.toISOString().slice(0, 10), settledAmount:r.settledAmount.toFixed(0),grossAmount:r.grossAmount.toFixed(0) }));

@@ -52,6 +52,7 @@ export async function importTradeWorkbookRow(tx:Prisma.TransactionClient,source:
  if(partner.businessNumber!==sourceBusiness)throw new InputError('선택한 거래처와 원본의 사업자등록번호가 다릅니다. 연결 거래처를 다시 확인하세요.');
  if(values.replacesCancellationId){
   const cancelled=await tx.tradeCancellation.findFirst({where:{id:values.replacesCancellationId,companyId:COMPANY_ID,voidedAt:null},include:{originalDocument:true}});
+  if(cancelled&&await tx.tradeCancellationChange.count({where:{cancellationId:cancelled.id,operation:'REGISTER_LATER'}}))throw new InputError('다른 달 정산 증빙의 재발급 승계는 별도 기간 정산이 필요합니다.');
   if(cancelled?.refundPlanId)throw new InputError('환급 연결 전액취소는 재발급 승계에 사용할 수 없습니다. 별도 정산을 확인하세요.');
   if(!cancelled||!cancelled.originalDocument.voidedAt||cancelled.originalDocument.companyId!==COMPANY_ID)throw new InputError('유효한 전액취소 원본을 선택하세요.');
   const cells=Array.isArray(cancelled.cells)?cancelled.cells:[];

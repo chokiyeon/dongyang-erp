@@ -1,3 +1,4 @@
+import {tradeActiveAt} from "./trade-period";
 import {bankReconciliationMonth} from "./bank-reconciliation";
 import {reportingBasis} from "./payroll-reporting";
 import type {Prisma,PrismaClient} from "@/generated/prisma/client";
@@ -9,7 +10,7 @@ export async function loadMonthEndReview(db:PrismaClient|Prisma.TransactionClien
  const read=async(tx:Prisma.TransactionClient)=>{
   const[bank,trades,templates,recurring,payrollMissing,costs,plans,latest,payrollReports,reconciliation,payrollCostSources,vehicleExpenses,vehicleCostSources,tradeCostSources]=await Promise.all([
    tx.bankTransaction.count({where:{account:{companyId},tradedDate:range,internalTransfer:false,accountingCodeId:null}}),
-   tx.tradeDocument.findMany({where:{companyId,issuedDate:range,voidedAt:null},select:{id:true,kind:true,proofConfirmed:true,inputVatReview:true,taxAmount:true,projectId:true,companyExpense:true,cashPlanId:true,settledAmount:true,grossAmount:true,paymentMethod:true}}),
+   tx.tradeDocument.findMany({where:{...tradeActiveAt(companyId,end),issuedDate:range},select:{id:true,kind:true,proofConfirmed:true,inputVatReview:true,taxAmount:true,projectId:true,companyExpense:true,cashPlanId:true,settledAmount:true,grossAmount:true,paymentMethod:true}}),
    tx.recurringPaymentTemplate.count({where:{companyId,active:true,startMonth:{lte:period},OR:[{endMonth:null},{endMonth:{gte:period}}],months:{none:{period,voidedAt:null}}}}),
    tx.monthlyPayment.count({where:{template:{companyId},period,voidedAt:null,OR:[{confirmed:false},{amount:null}]}}),
    tx.employee.count({where:{companyId,startDate:{lte:end},AND:[{OR:[{endDate:null},{endDate:{gte:start}}]},{OR:[{kind:"MONTHLY"},{kind:"DAILY",workRecords:{some:{workedDate:range,voidedAt:null}}}]}],payrolls:{none:{period,voidedAt:null}}}}),
