@@ -76,7 +76,7 @@ export async function settleCashPlan(tx: Prisma.TransactionClient, data: FormDat
     const c = plan.refundCancellation;
     const {paidOriginal} = await import("./trade-paid-cancellations");
     const {document: original, basis, lastPaid} = await paidOriginal(tx,c.originalDocumentId);
-    if(c.voidedAt || !original.voidedAt || basis!==c.paymentBasis || original.version!==c.documentVersionAfter || plan.replacedById || !plan.plannedAmount.equals(original.grossAmount) || plan.direction!==(original.kind==="PURCHASE"?"IN":"OUT")) throw new InputError("환급 원본과 원 지급 연결이 변경되었습니다. 수정증빙에서 확인하세요.");
+    if(c.voidedAt || !original.voidedAt || basis!==c.paymentBasis || original.version!==c.documentVersionAfter || plan.replacedById || !plan.plannedAmount.equals(original.settledAmount) || plan.direction!==(original.kind==="PURCHASE"?"IN":"OUT")) throw new InputError("환급 원본과 원 지급 연결이 변경되었습니다. 수정증빙에서 확인하세요.");
     if(!bank || !processedDate || processedDate<c.issuedDate || processedDate<lastPaid || BigInt(inputAmount)<=0n || !note) throw new InputError("환급은 수정증빙·원 지급일 이후의 실제 은행 거래로 금액과 사유를 입력하세요.");
     const account=await tx.bankAccount.findUniqueOrThrow({where:{id:bank.accountId}});
     if(account.currency!=="KRW" || await tx.tradeBankLink.count({where:{transactionId:bank.id,voidedAt:null}})) throw new InputError("다른 청구에 연결되지 않은 원화 환급 은행 거래를 선택하세요.");

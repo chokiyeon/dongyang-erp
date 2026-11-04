@@ -62,3 +62,7 @@
 ## 2026-11-04 기지급 취소·환급
 
 같은 달의 은행 전액 지급 원본을 전액 취소하고 반대 방향 환급 예정을 관리한다. 원 지급 보존, 부분/전액 환급 은행 연결·해제, 입력 정정, 다른 일정 승계 방지, 송금 준비 잔액과 다음 달 회계 전달 원본을 연결했다. 전체 단위/DB 134개 통과 (`/tmp/refund-full-tests.log`), 미정산 취소 화면 통과 (`/tmp/refund-browser2.log`), 기지급 환급 화면 전체 흐름 통과 (`/tmp/refund-browser3.log`), 타입·lint·운영 빌드 통과. 다음 달 환급으로 이전 달 전달본 해시가 변하지 않는 검사도 통과했다. 상세: TRADE-PAID-CANCELLATIONS.md. 다른 달 작성 수정증빙·부분 지급·연결 자재/차량/배부 반품·재발급 상계는 남아 있다.
+
+## 2026-11-04 일부 지급 원본 취소 확장
+
+일부 지급 원본의 전액취소 시 미지급 잔액만 종료하고 실제 지급액만 환급 예정으로 둔다. 원 계획 금액과 은행 지급은 보존하며 입력 정정은 미지급 잔액도 복원한다. 송금 준비·자금 전망·회계 전달에서 원 청구/미지급 취소/환급액을 구분한다. 단위/DB 136개, 실제 화면 3개 흐름, 타입·lint·운영 빌드 통과 (`/tmp/partial-refund-full-tests.log`, `/tmp/partial-refund-browser.log`, `/tmp/partial-refund-final-types.log`, `/tmp/partial-refund-lint.log`, `/tmp/partial-refund-build2.log`). 다른 달 수정증빙·연결 자재/차량/배부 정산·재발급 상계는 남아 있다.

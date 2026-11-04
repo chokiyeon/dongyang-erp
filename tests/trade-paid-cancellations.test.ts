@@ -40,15 +40,15 @@ async function workbook(kind: 'PURCHASE' | 'SALE', issued = '2026-10-20', busine
     s.addRow(r);
     return new Uint8Array(await b.xlsx.writeBuffer());
 }
-async function setup(tx: Prisma.TransactionClient, kind: 'PURCHASE' | 'SALE', plan = true) {
+async function setup(tx: Prisma.TransactionClient, kind: 'PURCHASE' | 'SALE', plan = true, paid = '1100') {
     await tx.company.upsert({ where: { id: COMPANY_ID }, create: { id: COMPANY_ID, name: '합성 환급 회사' }, update: {} });
     const partner = await tx.partner.create({ data: { companyId: COMPANY_ID, code: randomUUID(), name: '환급 합성업체', businessNumber: '0012345678', type: 'BOTH', payeeBank: '합성은행', payeeAccount: '12345', payeeHolder: '환급 합성업체', payeeVerifiedAt: new Date() } }), account = await tx.bankAccount.create({ data: { companyId: COMPANY_ID, bankName: '검증은행', label: randomUUID() } });
     const d = await tx.tradeDocument.create({ data: { companyId: COMPANY_ID, partnerId: partner.id, kind, reference: randomUUID(), title: '합성 기지급 원본', companyExpense: true, taxApprovalNumber: randomUUID().replace(/-/g, '').toUpperCase(), issuedDate: new Date('2026-10-01'), dueDate: new Date('2026-10-10'), supplyAmount: '1000', taxAmount: '100', grossAmount: '1100', taxKind: 'TAXABLE', evidence: 'TAX_INVOICE', proofConfirmed: true, inputVatReview: 'DEDUCTIBLE', paymentMethod: 'BANK_TRANSFER', note: '합성 검증' } });
     if (plan)
         await connectTradeCashPlan(tx, form({ documentId: d.id, version: '0', requestId: randomUUID(), mode: 'NEW', reason: '합성 원 지급 예정', noDuplicate: 'on' }));
-    const bank = await tx.bankTransaction.create({ data: { accountId: account.id, tradedDate: new Date('2026-10-10'), direction: kind === 'PURCHASE' ? 'OUT' : 'IN', amount: '1100', bankBalance: '99999999999999999999', description: '합성 원 지급' } });
+    const bank = await tx.bankTransaction.create({ data: { accountId: account.id, tradedDate: new Date('2026-10-10'), direction: kind === 'PURCHASE' ? 'OUT' : 'IN', amount: paid, bankBalance: '99999999999999999999', description: '합성 원 지급' } });
     const current = () => tx.tradeDocument.findUniqueOrThrow({ where: { id: d.id } });
-    await linkTradeBank(tx, form({ documentId: d.id, version: String((await current()).version), transactionId: bank.id, requestId: randomUUID(), amount: '1100', note: '합성 지급 전액 대조' }));
+    await linkTradeBank(tx, form({ documentId: d.id, version: String((await current()).version), transactionId: bank.id, requestId: randomUUID(), amount: paid, note: '합성 실제 지급액 대조' }));
     const prepare = async (bytes = undefined as Uint8Array | undefined, overrides = {} as Record<string, string>) => preparePaidCancellation(form({ requestId: randomUUID(), sheet: kind === 'PURCHASE' ? '매 입' : '매 출', sourceRow: '2', originalDocumentId: d.id, version: String((await current()).version), reason: '동월 계약 해제 및 환급 확인', paidCancellationConfirmed: 'on', refundDueDate: '2026-11-02', ...overrides }), '환급.xlsx', bytes ?? await workbook(kind));
     return { partner, account, d, bank, current, prepare };
 }
@@ -148,7 +148,7 @@ test('기지급 취소는 전액·사업자·작성월·마감 및 실제 원 �
     const candidates = await paidCancellationCandidates(tx, { kind: 'PURCHASE', date: '2026-10-20', gross: '-1100', supply: '-1000', tax: '-100', businessNumber: '0012345678' });
     assert.ok(candidates.some(r => r.id === x.d.id));
     await tx.tradeDocument.update({ where: { id: x.d.id }, data: { settledAmount: '100' } });
-    await assert.rejects(registerPaidCancellation(tx, source), /은행 전액/);
+    await assert.rejects(registerPaidCancellation(tx, source), /원 지급.*합계/);
     assert.equal(await tx.tradeCancellation.count({ where: { originalDocumentId: x.d.id } }), 0);
 }));
 test('동시 기지급 취소 요청은 환급 예정을 한 번만 만들고 동시 환급은 잔액을 초과하지 않는다', async () => {
@@ -158,7 +158,7 @@ test('동시 기지급 취소 요청은 환급 예정을 한 번만 만들고 �
     const plans: string[] = [];
     try {
         const prepared = await db.$transaction(async (tx) => {
-            const base = await setup(tx, 'PURCHASE');
+            const base = await setup(tx, 'PURCHASE', true, '400');
             return { base, source: await base.prepare() };
         });
         x = prepared.base;
@@ -174,11 +174,11 @@ test('동시 기지급 취소 요청은 환급 예정을 한 번만 만들고 �
         if (doc.cashPlanId)
             plans.push(doc.cashPlanId);
         const b = await db.bankTransaction.create({ data: { accountId: x.account.id, tradedDate: new Date('2026-11-01'), direction: 'IN', amount: '1400', description: '동시 합성 환급' } });
-        const post = () => form({ planId: p.id, version: String(p.version), requestId: randomUUID(), bankTransactionId: b.id, amount: '700', note: '동시 환급 합성 검증' });
+        const post = () => form({ planId: p.id, version: String(p.version), requestId: randomUUID(), bankTransactionId: b.id, amount: '300', note: '동시 환급 합성 검증' });
         const calls = await Promise.allSettled([db.$transaction(tx => settleCashPlan(tx, post())), db.$transaction(tx => settleCashPlan(tx, post()))]);
         assert.equal(calls.filter(r => r.status === 'fulfilled').length, 1);
         assert.equal(await db.cashSettlement.count({ where: { planId: p.id, voidedAt: null } }), 1);
-        assert.equal(cashSummary(await db.cashPlan.findUniqueOrThrow({ where: { id: p.id }, include: { settlements: true } })).remaining, 400n);
+        assert.equal(cashSummary(await db.cashPlan.findUniqueOrThrow({ where: { id: p.id }, include: { settlements: true } })).remaining, 100n);
     }
     finally {
         if (x) {
@@ -208,3 +208,64 @@ test('동시 기지급 취소 요청은 환급 예정을 한 번만 만들고 �
         await db.$disconnect();
     }
 });
+
+test('일부 지급 원본 전액취소는 미지급만 종료하고 실제 지급액만 환급·복원한다', async()=>rollbackTest(async tx=>{
+    for(const kind of ['PURCHASE','SALE'] as const){
+        for(const hasPlan of [true,false]){
+            const x=await setup(tx,kind,hasPlan,'400');
+            const before=await x.current();
+            const originalPlanId=before.cashPlanId;
+            const getOriginalPlan=()=>tx.cashPlan.findUniqueOrThrow({where:{id:originalPlanId!},include:{settlements:true}});
+            if(originalPlanId)assert.equal(cashSummary(await getOriginalPlan()).remaining,700n);
+            const source=await x.prepare();
+            const candidates=await paidCancellationCandidates(tx,{kind,date:'2026-10-20',gross:'-1100',supply:'-1000',tax:'-100',businessNumber:'0012345678'});
+            const candidate=candidates.find(c=>c.id===x.d.id)!;
+            assert.equal(candidate.settledAmount,'400');
+            assert.equal(candidate.grossAmount,'1100');
+            const saved=await registerPaidCancellation(tx,source);
+            assert.equal((await registerPaidCancellation(tx,source)).replayed,true);
+            const c=await tx.tradeCancellation.findUniqueOrThrow({where:{id:saved.cancellationId}});
+            const getRefund=()=>tx.cashPlan.findUniqueOrThrow({where:{id:c.refundPlanId!},include:{settlements:true}});
+            let refund=await getRefund();
+            assert.equal(refund.plannedAmount.toFixed(0),'400');
+            assert.equal(cashSummary(refund).remaining,400n);
+            assert.equal((await x.current()).settledAmount.toFixed(0),'400');
+            if(originalPlanId){const p=await getOriginalPlan();assert.equal(p.plannedAmount.toFixed(0),'1100');assert.equal(cashSummary(p).actual,400n);assert.equal(cashSummary(p).remaining,0n);assert.ok(p.completedAt);}
+            const plans=originalPlanId?[await getOriginalPlan(),refund]:[refund];
+            const projection=buildForecast({baseDate:new Date('2026-10-31'),amount:{toFixed:()=> '10000'}},plans,3);
+            assert.equal(projection.rows.at(-1)?.confirmedBalance,kind==='PURCHASE'?10400n:9600n);
+            const transfers=await transferPreparation(tx,'2026-11-03');
+            assert.equal(transfers.ready.some(r=>r.id===`invoice:${x.d.id}`),false);
+            assert.equal(transfers.ready.find(r=>r.id===`refund:${c.id}`)?.amount,kind==='SALE'?'400':undefined);
+            const accounting=await captureAccounting(tx,'2026-11');
+            const table=accounting.snapshot.tables.find(t=>t.title==='기지급 취소 환급 정산')!;
+            assert.ok(table.rows.some(r=>r[0]===c.id&&r[5]==='400'&&r[7]==='400'&&r[9]==='400'&&r[14]==='1100'&&r[15]==='700'));
+            const tooMuch=await tx.bankTransaction.create({data:{accountId:x.account.id,tradedDate:new Date('2026-11-01'),direction:refund.direction,amount:'500',description:'일부 지급 원본 환급 초과 검증'}});
+            await assert.rejects(settleCashPlan(tx,form({planId:refund.id,version:String(refund.version),requestId:randomUUID(),bankTransactionId:tooMuch.id,amount:'500',note:'초과 환급 시도'})),/잔액/);
+            const post=form({planId:refund.id,version:String(refund.version),requestId:randomUUID(),bankTransactionId:tooMuch.id,amount:'400',note:'실제 지급액 환급 확인'});
+            await settleCashPlan(tx,post);refund=await getRefund();assert.ok(refund.completedAt);
+            const settlement=refund.settlements.find(s=>!s.voidedAt)!;
+            await voidCashSettlement(tx,form({settlementId:settlement.id,version:String(refund.version),reason:'잘못 연결한 환급 정정'}));
+            await undoTradeCancellation(tx,form({cancellationId:c.id,version:'0',requestId:randomUUID(),reason:'일부 지급 취소 입력 오류 정정'}));
+            assert.equal((await x.current()).voidedAt,null);
+            assert.equal((await x.current()).settledAmount.toFixed(0),'400');
+            assert.equal((await tx.tradeBankLink.findFirstOrThrow({where:{documentId:x.d.id,voidedAt:null}})).amount.toFixed(0),'400');
+            if(originalPlanId){const reopened=await getOriginalPlan();assert.equal(reopened.completedAt,null);assert.equal(reopened.completionNote,null);assert.equal(cashSummary(reopened).remaining,700n);}
+            assert.equal(cashSummary(await getRefund()).remaining,0n);
+        }
+    }
+}));
+
+test('일부 지급 취소는 지급액·예산안이 불일치하거나 별도로 종료된 원본을 보류한다',async()=>rollbackTest(async tx=>{
+    const x=await setup(tx,'PURCHASE',true,'400');
+    const d=await x.current(),source=await x.prepare();
+    await tx.cashPlan.update({where:{id:d.cashPlanId!},data:{completedAt:new Date(),completionNote:'수기 차액 종료'}});
+    await assert.rejects(registerPaidCancellation(tx,source),/남은 예정액/);
+    await tx.cashPlan.update({where:{id:d.cashPlanId!},data:{completedAt:null,completionNote:null}});
+    await tx.tradeDocument.update({where:{id:d.id},data:{settledAmount:'0'}});
+    await assert.rejects(registerPaidCancellation(tx,source),/은행 지급 대조/);
+    await tx.tradeDocument.update({where:{id:d.id},data:{settledAmount:'1101'}});
+    await assert.rejects(registerPaidCancellation(tx,source),/은행 지급 대조/);
+    assert.equal(await tx.tradeCancellation.count({where:{originalDocumentId:d.id}}),0);
+    assert.equal((await x.current()).voidedAt,null);
+}));
