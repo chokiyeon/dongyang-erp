@@ -1,6 +1,6 @@
 import {prepareLaterCancellation,registerLaterCancellation} from "@/lib/trade-later-cancellations";
 import {preparePaidCancellation,prepareLaterPaidCancellation,registerPaidCancellation} from "@/lib/trade-paid-cancellations";
-import {prepareTradeReduction,registerTradeReduction} from "@/lib/trade-reductions";
+import {prepareTradeReduction,prepareLaterReduction,registerTradeReduction} from "@/lib/trade-reductions";
 import {createHash} from "node:crypto";
 import {prepareTradeCancellation,registerTradeCancellation} from "@/lib/trade-cancellations";
 import {NextResponse} from 'next/server';
@@ -20,6 +20,7 @@ export async function POST(request:Request){
   try{while(true){const part=await reader.read();if(part.done)break;size+=part.value.byteLength;if(size>DOCUMENT_MAX_BYTES+128*1024){await reader.cancel();return reply({error:'10MB 이하 원본을 선택하세요.'},413);}chunks.push(part.value);}}finally{reader.releaseLock();}
   const data=await new Response(Buffer.concat(chunks),{headers:{'content-type':contentType}}).formData(),file=data.get('file');if(!(file instanceof File)||data.getAll('file').length!==1)throw new InputError('원본 파일 하나를 선택하세요.');
   const content=new Uint8Array(await file.arrayBuffer()),expected=data.get('fileHash');if(expected!==null&&(typeof expected!=='string'||!/^[a-f0-9]{64}$/.test(expected)||createHash('sha256').update(content).digest('hex')!==expected))throw new InputError('검토한 원본과 파일이 달라졌습니다. 파일을 다시 선택해 검토하세요.');
+  if(data.get('operation')==='LATER_REDUCTION'){const source=await prepareLaterReduction(data,file.name,content);const saved=await getDb().$transaction(tx=>registerTradeReduction(tx,source,'LATER'),{timeout:20000});revalidatePath('/','layout');return reply(saved);}
   if(data.get('operation')==='LATER_PAID_CANCEL'){const source=await prepareLaterPaidCancellation(data,file.name,content);const saved=await getDb().$transaction(tx=>registerPaidCancellation(tx,source,'LATER'),{timeout:20000});revalidatePath('/','layout');return reply(saved);}
   if(data.get('operation')==='LATER_CANCEL'){const source=await prepareLaterCancellation(data,file.name,content);const saved=await getDb().$transaction(tx=>registerLaterCancellation(tx,source),{timeout:20000});revalidatePath('/','layout');return reply(saved);}
   if(data.get('operation')==='REDUCTION'){const source=await prepareTradeReduction(data,file.name,content);const saved=await getDb().$transaction(tx=>registerTradeReduction(tx,source),{timeout:20000});revalidatePath('/','layout');return reply(saved);}

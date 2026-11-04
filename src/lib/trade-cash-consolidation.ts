@@ -1,3 +1,4 @@
+import {latestLaterReduction} from "./trade-period";
 import {createHash,randomUUID} from "node:crypto";
 import type {Prisma} from "@/generated/prisma/client";
 import {COMPANY_ID} from "./constants";
@@ -14,7 +15,7 @@ export async function consolidateTradeCashPlans(tx:Prisma.TransactionClient,d:Fo
  const sum=sources.reduce((total,p)=>total+BigInt(p.plannedAmount.toFixed(0)),0n);if(sum!==BigInt(doc.grossAmount.toFixed(0)))throw new InputError("선택한 기존 일정의 합계와 청구 총액이 다릅니다. 부가세 포함 금액과 계약 변경분을 대조하세요.");
  for(const p of sources){const actual=cashSummary(p).actual;if(actual>BigInt(p.plannedAmount.toFixed(0))||(p.completedAt&&actual!==BigInt(p.plannedAmount.toFixed(0)))||p.settlements.some(s=>!s.bankTransaction||s.bankTransaction.account.companyId!==COMPANY_ID||s.bankTransaction.internalTransfer||s.bankTransaction.direction!==p.direction||s.amount.lte(0)||s.tradeBankLinkId||s.originPlanId))throw new InputError("다른 청구에 연결된 실적·수기 실적·최종 차액 정산·종료된 빈 일정은 자동 통합할 수 없습니다.");}
  if(sources.some(p=>p.settlements.length)&&d.get("existingPaidConfirmed")!=="on")throw new InputError("통합할 일정의 기존 은행 실적과 이번 청구를 대조하세요.");
- await assertPeriodsOpen(tx,doc.issuedDate,doc.dueDate,...sources.map(p=>p.plannedDate),...sources.flatMap(p=>p.settlements.map(s=>s.processedDate)));
+ await assertPeriodsOpen(tx,(await latestLaterReduction(tx,doc.id))?.issuedDate??doc.issuedDate,doc.dueDate,...sources.map(p=>p.plannedDate),...sources.flatMap(p=>p.settlements.map(s=>s.processedDate)));
  const target=await tx.cashPlan.create({data:{companyId:COMPANY_ID,projectId:doc.projectId,title:doc.title,category:doc.kind==="SALE"?"공사대금":"자재대금",direction:doc.kind==="SALE"?"IN":"OUT",certainty:"CONFIRMED",plannedDate:doc.dueDate,plannedAmount:doc.grossAmount}});
  for(const source of sources){const held=await tx.cashPlan.updateMany({where:{id:source.id,companyId:COMPANY_ID,version:source.version,replacedById:null},data:{replacedById:target.id,completedAt:new Date(),completionNote:`청구 ${doc.reference}로 일정 통합 · ${reason}`.slice(0,500),version:{increment:1}}});if(held.count!==1)throw new InputError("통합할 일정 또는 실적이 변경되었습니다.");for(const s of source.settlements){const moved=await tx.cashSettlement.updateMany({where:{id:s.id,planId:source.id,originPlanId:null,tradeBankLinkId:null,voidedAt:null},data:{planId:target.id,originPlanId:source.id}});if(moved.count!==1)throw new InputError("통합할 은행 실적이 변경되었습니다.");}}
  const normalized=new FormData();for(const[key,value]of d.entries())normalized.append(key,value);normalized.set("mode","EXISTING");normalized.set("cashPlanId",target.id);normalized.set("requestId",randomUUID());const{connectTradeCashPlan}=await import("./trade-cash");await connectTradeCashPlan(tx,normalized);

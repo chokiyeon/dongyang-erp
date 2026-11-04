@@ -1,4 +1,4 @@
-import {LATER_CANCELLATION} from "./trade-period";
+import {LATER_CANCELLATION,assertCreditBalance} from "./trade-period";
 import {createHash} from 'node:crypto';
 import type {Prisma,PrismaClient} from '@/generated/prisma/client';
 import {COMPANY_ID} from './constants';
@@ -32,7 +32,7 @@ export async function registerTradeCancellation(tx:Prisma.TransactionClient,sour
  if(!normalizeBusinessNumber(originalBusiness)||normalizeBusinessNumber(originalBusiness)!==normalizeBusinessNumber(row.raw[row.kind==='SALE'?9:4]??''))throw new InputError('수정증빙과 원본 거래처 사업자번호가 다릅니다.');
  if(await tx.tradeReduction.count({where:{companyId:COMPANY_ID,taxApprovalNumber:row.approval,voidedAt:null}}))throw new InputError('이미 사용한 감액 승인번호입니다.');
  if(await tx.tradeDocument.findFirst({where:{companyId:COMPANY_ID,taxApprovalNumber:row.approval,voidedAt:null}})||await tx.tradeCancellation.findFirst({where:{companyId:COMPANY_ID,voidedAt:null,OR:[{taxApprovalNumber:row.approval},{originalDocumentId:original.id},{originalApproval:row.approval}]}}))throw new InputError('이미 사용한 수정증빙 승인번호 또는 취소 원본입니다.');
- const form=new FormData();for(const [key,value]of Object.entries({documentId:original.id,version:String(original.version),reason:`전액취소 수정증빙 ${row.approval}: ${source.reason}`.slice(0,300),requestId:source.requestId}))form.set(key,value);await voidTradeDocument(tx,form);
+ const form=new FormData();for(const [key,value]of Object.entries({documentId:original.id,version:String(original.version),reason:`전액취소 수정증빙 ${row.approval}: ${source.reason}`.slice(0,300),requestId:source.requestId}))form.set(key,value);await assertCreditBalance(tx,original.id,new Date(row.date));await voidTradeDocument(tx,form,{verifiedCredit:true});
  const file=await tx.tradeWorkbookFile.upsert({where:{companyId_checksum:{companyId:COMPANY_ID,checksum:source.checksum}},create:{companyId:COMPANY_ID,checksum:source.checksum,fileName:source.fileName,content:Buffer.from(source.content)},update:{},select:{id:true}});
  const cancelled=await tx.tradeCancellation.create({data:{companyId:COMPANY_ID,originalDocumentId:original.id,originalApproval:original.taxApprovalNumber,taxApprovalNumber:row.approval,issuedDate:new Date(row.date),supplyAmount:row.supply,taxAmount:row.tax,grossAmount:row.gross,fileId:file.id,sheet:row.sheet,sourceRow:row.row,headers:source.headers,cells:row.raw,reason:source.reason,requestId:source.requestId,fingerprint:source.fingerprint,documentVersionAfter:original.version+1}});
  await tx.tradeCancellationChange.create({data:{cancellationId:cancelled.id,requestId:source.requestId,fingerprint:source.fingerprint,operation:'REGISTER',reason:source.reason}});return {id:original.id,cancellationId:cancelled.id,replayed:false};

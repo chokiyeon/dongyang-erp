@@ -1,4 +1,4 @@
-import {LATER_CANCELLATION} from "./trade-period";
+import {LATER_CANCELLATION,assertCreditBalance} from "./trade-period";
 import { createHash } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@/generated/prisma/client';
 import { COMPANY_ID } from './constants';
@@ -29,7 +29,7 @@ export async function prepareLaterPaidCancellation(data:FormData,fileName:string
     return {...source,fingerprint:digest({operation:LATER_CANCELLATION,source:source.fingerprint})};
 }
 export async function paidOriginal(tx: Prisma.TransactionClient, id: string) {
-    const d = await tx.tradeDocument.findFirst({ where: { id, companyId: COMPANY_ID }, include: { partner: true, workbookSource: true, monthlyPayment: true, links: { where: { voidedAt: null }, include: { transaction: { include: { account: true } } } }, cashPlan: { include: { settlements: { where: { voidedAt: null } } } } } });
+    const d = await tx.tradeDocument.findFirst({ where: { id, companyId: COMPANY_ID }, include: { reductions:{where:{voidedAt:null},orderBy:{beforeGross:"desc"},take:1,select:{businessNumber:true}},partner: true, workbookSource: true, monthlyPayment: true, links: { where: { voidedAt: null }, include: { transaction: { include: { account: true } } } }, cashPlan: { include: { settlements: { where: { voidedAt: null } } } } } });
     if (!d || d.monthlyPayment || !d.proofConfirmed || d.grossAmount.lte(0) || d.settledAmount.lte(0) || d.settledAmount.gt(d.grossAmount) || !d.links.length)
         throw new InputError('은행 지급 대조가 완료된 청구를 선택하세요. 정기 지급 연결은 별도 확인이 필요합니다.');
     if (d.links.reduce((s, l) => s + BigInt(l.amount.toFixed(0)), 0n) !== BigInt(d.settledAmount.toFixed(0)) || d.links.some(l => l.amount.lte(0) || l.transaction.account.companyId !== COMPANY_ID || l.transaction.account.currency !== 'KRW' || l.transaction.internalTransfer || l.transaction.direction !== (d.kind === 'PURCHASE' ? 'OUT' : 'IN') || l.transaction.tradedDate.toISOString().slice(0, 10) > koreanToday()))
@@ -45,8 +45,9 @@ export async function paidOriginal(tx: Prisma.TransactionClient, id: string) {
     const basis = digest({ id: d.id, partnerId: d.partnerId, approval: d.taxApprovalNumber, gross: d.grossAmount.toFixed(0), supply: d.supplyAmount.toFixed(0), tax: d.taxAmount.toFixed(0), cashPlanId: d.cashPlanId, links: d.links.map(l => ({ id: l.id, bank: l.transactionId, amount: l.amount.toFixed(0), date: l.transaction.tradedDate.toISOString() })).sort((a, b) => a.id.localeCompare(b.id)) });
     return { document: d, basis, lastPaid: new Date(Math.max(...d.links.map(l => l.transaction.tradedDate.getTime()))) };
 }
-async function assertNoCostLinks(tx: Prisma.TransactionClient, id: string) {
-    if (await tx.tradeReduction.count({ where: { originalDocumentId: id, companyId: COMPANY_ID, voidedAt: null } }) || await tx.sourceCostReview.count({ where: { companyId: COMPANY_ID, sourceType: 'TRADE', sourceId: id, active: true } }) || await tx.stockMovement.count({ where: { documentId: id, voidedAt: null } }) || await tx.vehicleExpense.count({ where: { documentId: id } }))
+async function assertNoCostLinks(tx: Prisma.TransactionClient, id: string, cutoff?:Date) {
+    if(cutoff)await assertCreditBalance(tx,id,cutoff);
+    if (!cutoff && await tx.tradeReduction.count({ where: { originalDocumentId: id, companyId: COMPANY_ID, voidedAt: null } }) || await tx.sourceCostReview.count({ where: { companyId: COMPANY_ID, sourceType: 'TRADE', sourceId: id, active: true } }) || await tx.stockMovement.count({ where: { documentId: id, voidedAt: null } }) || await tx.vehicleExpense.count({ where: { documentId: id } }))
         throw new InputError('부분 감액·자재·차량·원가 배부 연결이 있어 별도 정산이 필요합니다.');
 }
 export async function registerPaidCancellation(tx: Prisma.TransactionClient, source: Awaited<ReturnType<typeof preparePaidCancellation>>,scope:'SAME'|'LATER'='SAME') {
@@ -69,10 +70,10 @@ export async function registerPaidCancellation(tx: Prisma.TransactionClient, sou
     else if (d.issuedDate.toISOString().slice(0, 7) !== row.date.slice(0, 7))throw new InputError('다른 달의 수정증빙은 별도 기간 정산이 필요합니다.');
     if (d.kind !== row.kind || d.evidence !== 'TAX_INVOICE' || !d.taxApprovalNumber || d.taxApprovalNumber === row.approval || BigInt(d.grossAmount.toFixed(0)) !== -BigInt(row.gross) || BigInt(d.supplyAmount.toFixed(0)) !== -BigInt(row.supply) || BigInt(d.taxAmount.toFixed(0)) !== -BigInt(row.tax))
         throw new InputError('원본 구분·서로 다른 승인번호·공급가액·세액·합계 전액을 대조하세요.');
-    const cells = Array.isArray(d.workbookSource?.cells) ? d.workbookSource.cells : [], business = normalizeBusinessNumber(String(cells[row.kind === 'SALE' ? 9 : 4] ?? d.partner.businessNumber ?? ''));
+    const cells = Array.isArray(d.workbookSource?.cells) ? d.workbookSource.cells : [], business = normalizeBusinessNumber(String(cells[row.kind === 'SALE' ? 9 : 4] ?? d.reductions[0]?.businessNumber ?? d.partner.businessNumber ?? ''));
     if (!business || business !== normalizeBusinessNumber(row.raw[row.kind === 'SALE' ? 9 : 4] ?? ''))
         throw new InputError('원본과 수정증빙 사업자번호가 다릅니다.');
-    await assertNoCostLinks(tx, d.id);
+    await assertNoCostLinks(tx,d.id,new Date(row.date));
     if (await tx.tradeDocument.count({ where: { companyId: COMPANY_ID, taxApprovalNumber: row.approval, voidedAt: null } }) || await tx.tradeReduction.count({ where: { companyId: COMPANY_ID, taxApprovalNumber: row.approval, voidedAt: null } }) || await tx.tradeCancellation.count({ where: { companyId: COMPANY_ID, voidedAt: null, OR: [{ originalDocumentId: d.id }, { taxApprovalNumber: row.approval }, { originalApproval: row.approval }] } }))
         throw new InputError('이미 사용한 수정증빙 또는 취소 원본입니다.');
     const changed = await tx.tradeDocument.updateMany({ where: { id: d.id, companyId: COMPANY_ID, version: d.version, voidedAt: null, settledAmount: d.settledAmount }, data: { voidedAt: new Date(), voidReason: `기지급 전액취소 · 환급 별도: ${source.reason}`.slice(0, 300), version: { increment: 1 } } });
@@ -113,7 +114,7 @@ export async function undoPaidCancellation(tx: Prisma.TransactionClient, data: F
         throw new InputError('같은 승인번호의 활성 청구가 있습니다.');
     if (!d.voidedAt || d.version !== c.documentVersionAfter || basis !== c.paymentBasis || !c.refundPlan.plannedAmount.equals(d.settledAmount) || c.refundPlan.direction !== (d.kind === 'PURCHASE' ? 'IN' : 'OUT'))
         throw new InputError('원래 지급 내역이 변경되어 취소 등록을 복원할 수 없습니다.');
-    await assertNoCostLinks(tx, d.id);
+    await assertNoCostLinks(tx,d.id,c.issuedDate);
     const p = await tx.cashPlan.updateMany({ where: { id: c.refundPlan.id, companyId: COMPANY_ID, version: c.refundPlan.version }, data: { completedAt: new Date(), completionNote: `기지급 취소 등록 정정: ${reason}`.slice(0, 500), version: { increment: 1 } } });
     if (p.count !== 1)
         throw new InputError('환급 일정이 변경되었습니다.');

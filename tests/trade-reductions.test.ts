@@ -1,3 +1,11 @@
+import {prepareLaterCancellation,registerLaterCancellation} from '../src/lib/trade-later-cancellations';
+import {prepareLaterPaidCancellation,registerPaidCancellation} from '../src/lib/trade-paid-cancellations';
+import {prepareTradeCancellation,registerTradeCancellation,undoTradeCancellation} from '../src/lib/trade-cancellations';
+import {readTaxPeriod} from '../src/lib/trade-period';
+import {connectTradeCashPlan} from '../src/lib/trade-cash';
+import {reviewSourcePayment} from '../src/lib/trade-source-payment';
+import {transferPreparation} from '../src/lib/transfer-preparation';
+import {createHash} from 'node:crypto';
 import 'dotenv/config';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -5,7 +13,7 @@ import ExcelJS from 'exceljs';
 import {randomUUID} from 'node:crypto';
 import {getDb} from '../src/lib/db';
 import {COMPANY_ID} from '../src/lib/constants';
-import {prepareTradeReduction,registerTradeReduction,undoTradeReduction,reductionCandidates} from '../src/lib/trade-reductions';
+import {prepareTradeReduction,prepareLaterReduction,registerTradeReduction,undoTradeReduction,reductionCandidates} from '../src/lib/trade-reductions';
 import {saveTradeDocument,voidTradeDocument,linkTradeBank,unlinkTradeBank} from '../src/lib/trades';
 import {captureAccounting} from '../src/lib/accounting-delivery';
 import {findExistingWorkbookTrades} from '../src/lib/trade-workbook-existing';
@@ -23,3 +31,75 @@ test('후속 감액은 최근 순서로 정정하고 기지급·연결·다른 �
 test('부분 감액의 동시 재시도는 원본 금액을 한 번만 줄인다',async()=>{const db=getDb();let id='',partnerId='',projectId='';try{const base=await db.$transaction(tx=>original(tx));id=base.id;partnerId=base.values.partnerId;projectId=base.project.id;const source=await prepareTradeReduction(form(input(id)),'감액.xlsx',await file(randomUUID().replace(/-/g,'')));const result=await Promise.all([db.$transaction(tx=>registerTradeReduction(tx,source),{timeout:20000}),db.$transaction(tx=>registerTradeReduction(tx,source),{timeout:20000})]);assert.equal(result[0].reductionId,result[1].reductionId);assert.equal(result.filter(r=>!r.replayed).length,1);assert.equal((await db.tradeDocument.findUniqueOrThrow({where:{id}})).grossAmount.toFixed(0),'880');}finally{if(id){const records=await db.tradeReduction.findMany({where:{originalDocumentId:id}});await db.tradeReductionChange.deleteMany({where:{reductionId:{in:records.map(r=>r.id)}}});await db.tradeReduction.deleteMany({where:{originalDocumentId:id}});await db.tradeDocumentChange.deleteMany({where:{documentId:id}});await db.tradeDocument.delete({where:{id}});await db.tradeWorkbookFile.deleteMany({where:{id:{in:records.map(r=>r.fileId)}}});}if(partnerId)await db.partner.delete({where:{id:partnerId}});if(projectId)await db.project.delete({where:{id:projectId}});await db.$disconnect();}});
 test('매출 부분 감액은 공급받는 자 사업자번호로 연결해 미수·매출세액을 줄인다',async()=>{const db=getDb(),rollback=new Error('SALE_REDUCTION_ROLLBACK');try{await assert.rejects(db.$transaction(async tx=>{const base=await original(tx,'SALE'),data=input(base.id);const prepared=await prepareTradeReduction(form({...data,sheet:'매 출'}),'매출감액.xlsx',await file(randomUUID().replace(/-/g,''),'-200','-20','2026-10-20','0012345678','SALE'));await registerTradeReduction(tx,prepared);const d=await tx.tradeDocument.findUniqueOrThrow({where:{id:base.id}});assert.equal(d.kind,'SALE');assert.equal(d.grossAmount.toFixed(0),'880');assert.equal(d.settledAmount.toFixed(0),'0');assert.equal(summarizeVat([{...d,supply:d.supplyAmount.toFixed(0),tax:d.taxAmount.toFixed(0)}]).output,80n);throw rollback;},{timeout:20000}),e=>e===rollback);}finally{await db.$disconnect();}});
 test('감액 후 은행 지급은 순액 한도로 연결하고 기지급 상태에서는 감액 복원을 차단한다',async()=>{const db=getDb(),rollback=new Error('REDUCTION_PAYMENT_ROLLBACK');try{await assert.rejects(db.$transaction(async tx=>{const base=await original(tx),proof=await registerTradeReduction(tx,await prepareTradeReduction(form(input(base.id)),'감액.xlsx',await file(randomUUID().replace(/-/g,''))));const account=await tx.bankAccount.create({data:{companyId:COMPANY_ID,bankName:'검증은행',label:randomUUID()}}),bank=await tx.bankTransaction.create({data:{accountId:account.id,tradedDate:new Date('2026-10-21'),direction:'OUT',amount:'880',description:'합성 감액 후 순액 지급'}});await assert.rejects(linkTradeBank(tx,form({documentId:base.id,transactionId:bank.id,version:'1',requestId:randomUUID(),amount:'1100',note:'감액 전 금액을 잘못 연결 시도'})),/잔액/);await linkTradeBank(tx,form({documentId:base.id,transactionId:bank.id,version:'1',requestId:randomUUID(),amount:'880',note:'감액 후 순액 지급 대조'}));assert.equal((await tx.tradeDocument.findUniqueOrThrow({where:{id:base.id}})).settledAmount.toFixed(0),'880');const undo=form({reductionId:proof.reductionId,version:'0',requestId:randomUUID(),reason:'기지급 상태에서 복원 시도'});await assert.rejects(undoTradeReduction(tx,undo),/기지급/);const link=await tx.tradeBankLink.findFirstOrThrow({where:{documentId:base.id,voidedAt:null}});await unlinkTradeBank(tx,form({linkId:link.id,version:'2',reason:'합성 연결 오류 정정 검증'}));undo.set('requestId',randomUUID());undo.set('reason','합성 은행 연결 정정 후 감액 등록 정정');await undoTradeReduction(tx,undo);assert.equal((await tx.tradeDocument.findUniqueOrThrow({where:{id:base.id}})).grossAmount.toFixed(0),'1100');assert.equal((await tx.bankTransaction.findUniqueOrThrow({where:{id:bank.id}})).amount.toFixed(0),'880');throw rollback;},{timeout:30000}),e=>e===rollback);}finally{await db.$disconnect();}});
+
+test('다른 달 부분 감액은 원본 월을 보존하고 현재 순액의 지급 대조·예산안·은행을 연결한다',async()=>{
+ const db=getDb(),rollback=new Error('LATER_REDUCTION_CASH');try{await assert.rejects(db.$transaction(async tx=>{
+  const base=await original(tx),account=await tx.bankAccount.create({data:{companyId:COMPANY_ID,bankName:'검증은행',label:randomUUID()}});
+  await tx.tradeDocument.update({where:{id:base.id},data:{dueDate:new Date('2026-11-30'),paymentMethod:'BANK_TRANSFER'}});
+  await tx.partner.update({where:{id:base.values.partnerId},data:{payeeBank:'검증은행',payeeAccount:'12345',payeeHolder:'합성 업체',payeeVerifiedAt:new Date()}});
+  const bytes=await file(base.values.taxApprovalNumber,'1000','100','2026-10-01'),raw=Array(43).fill('');raw[4]='0012345678';raw[33]='원본 지급 메모';const sourceFile=await tx.tradeWorkbookFile.create({data:{companyId:COMPANY_ID,fileName:'원본.xlsx',checksum:createHash('sha256').update(bytes).digest('hex'),content:Buffer.from(bytes)}});
+  await tx.tradeWorkbookSource.create({data:{documentId:base.id,fileId:sourceFile.id,sheet:'매 입',sourceRow:2,headers:[],cells:raw,detailRows:[],requestId:randomUUID(),fingerprint:'합성 원본',reason:'원본 지급 표기 대조'}});
+  await reviewSourcePayment(tx,form({documentId:base.id,version:'0',requestId:randomUUID(),mode:'CONFIRM',sourcePaymentConfirmed:'on',reason:'초기 미지급 원본 대조'}));
+  const october=await captureAccounting(tx,'2026-10');await tx.accountingPeriodLock.upsert({where:{companyId_period:{companyId:COMPANY_ID,period:'2026-10'}},create:{companyId:COMPANY_ID,period:'2026-10',packageId:'합성',digest:'합성',locked:true},update:{locked:true}});
+  const prepared=await prepareLaterReduction(form({...input(base.id,'1'),laterReductionConfirmed:'on'}),'다른달감액.xlsx',await file(randomUUID().replace(/-/g,''),'-200','-20','2026-11-02'));
+  const proof=await registerTradeReduction(tx,prepared,'LATER');assert.equal((await registerTradeReduction(tx,prepared,'LATER')).replayed,true);
+  let d=await tx.tradeDocument.findUniqueOrThrow({where:{id:base.id}});assert.equal(d.grossAmount.toFixed(0),'880');assert.equal((await captureAccounting(tx,'2026-10')).digest,october.digest);
+  assert.equal((await transferPreparation(tx,'2026-11-30')).held.some(r=>r.id===`invoice:${base.id}`),true);
+  await reviewSourcePayment(tx,form({documentId:base.id,version:String(d.version),requestId:randomUUID(),mode:'CONFIRM',sourcePaymentConfirmed:'on',reason:'다른 달 감액 후 현재 순액 대조'}));d=await tx.tradeDocument.findUniqueOrThrow({where:{id:base.id}});
+  assert.equal((await transferPreparation(tx,'2026-11-30')).ready.find(r=>r.id===`invoice:${base.id}`)?.amount,'880');assert.equal((await captureAccounting(tx,'2026-10')).digest,october.digest);
+  await connectTradeCashPlan(tx,form({documentId:base.id,version:String(d.version),requestId:randomUUID(),mode:'NEW',reason:'순액 880원 현재 지급 예정',noDuplicate:'on'}));d=await tx.tradeDocument.findUniqueOrThrow({where:{id:base.id}});assert.equal((await captureAccounting(tx,'2026-10')).digest,october.digest);
+  const bank=await tx.bankTransaction.create({data:{accountId:account.id,tradedDate:new Date('2026-11-03'),direction:'OUT',amount:'880',description:'다른 달 감액 순액 지급'}});
+  await linkTradeBank(tx,form({documentId:base.id,version:String(d.version),transactionId:bank.id,requestId:randomUUID(),amount:'880',note:'순액 실제 은행 지급'}));d=await tx.tradeDocument.findUniqueOrThrow({where:{id:base.id}});assert.equal((await captureAccounting(tx,'2026-10')).digest,october.digest);
+  const november=await captureAccounting(tx,'2026-11');assert.ok(november.snapshot.tables.find(t=>t.title==='매입 매출')?.rows.some(r=>r[0]===proof.reductionId&&r[8]==='-220'));
+  const octoberTax=await readTaxPeriod(tx,COMPANY_ID,new Date('2026-10-01'),new Date('2026-11-01'));assert.equal(octoberTax.rows.find(r=>r.id===base.id)?.grossAmount.toFixed(0),'1100');const novTax=await readTaxPeriod(tx,COMPANY_ID,new Date('2026-11-01'),new Date('2026-12-01'));assert.equal(novTax.rows.find(r=>r.id===proof.reductionId)?.taxAmount.toFixed(0),'-20');
+  await assert.rejects(undoTradeReduction(tx,form({reductionId:proof.reductionId,version:'0',requestId:randomUUID(),reason:'기지급 복원 우회 시도'})),/기지급/);
+  const link=await tx.tradeBankLink.findFirstOrThrow({where:{documentId:base.id,voidedAt:null}});await unlinkTradeBank(tx,form({linkId:link.id,version:String(d.version),reason:'은행 오연결 정정'}));d=await tx.tradeDocument.findUniqueOrThrow({where:{id:base.id}});
+  await connectTradeCashPlan(tx,form({documentId:base.id,version:String(d.version),requestId:randomUUID(),mode:'DETACH',reason:'일정 연결 정정'}));await undoTradeReduction(tx,form({reductionId:proof.reductionId,version:'0',requestId:randomUUID(),reason:'다른 달 감액 연결 정정'}));assert.equal((await captureAccounting(tx,'2026-10')).digest,october.digest);
+  throw rollback;
+ },{timeout:60000}),e=>e===rollback);}finally{await db.$disconnect();}
+});
+
+test('다른 달 연속 감액은 각 작성월 차액을 유지하고 가장 최근 감액부터 정정한다',async()=>{
+ const db=getDb(),rollback=new Error('LATER_REDUCTION_CHAIN');try{await assert.rejects(db.$transaction(async tx=>{
+  for(const kind of ['PURCHASE','SALE'] as const){const base=await original(tx,kind),sheet=kind==='SALE'?'매 출':'매 입';const firstSource=await prepareLaterReduction(form({...input(base.id),sheet,laterReductionConfirmed:'on'}),'감액1.xlsx',await file(randomUUID().replace(/-/g,''),'-200','-20','2026-11-01','0012345678',kind));const before=await captureAccounting(tx,'2026-10');const first=await registerTradeReduction(tx,firstSource,'LATER');assert.equal((await captureAccounting(tx,'2026-10')).digest,before.digest);
+   const second=await registerTradeReduction(tx,await prepareLaterReduction(form({...input(base.id,'1'),sheet,laterReductionConfirmed:'on'}),'감액2.xlsx',await file(randomUUID().replace(/-/g,''),'-100','-10','2026-11-02','0012345678',kind)),'LATER');assert.equal((await tx.tradeDocument.findUniqueOrThrow({where:{id:base.id}})).grossAmount.toFixed(0),'770');
+   const tax=await readTaxPeriod(tx,COMPANY_ID,new Date('2026-01-01'),new Date('2027-01-01'));assert.equal(tax.rows.filter(r=>[base.id,first.reductionId,second.reductionId].includes(r.id)).reduce((v,r)=>v+BigInt(r.grossAmount.toFixed(0)),0n),770n);assert.equal((await captureAccounting(tx,'2026-10')).digest,before.digest);
+   await assert.rejects(undoTradeReduction(tx,form({reductionId:first.reductionId,version:'0',requestId:randomUUID(),reason:'오래된 감액 먼저 정정'})),/후속 감액/);
+   await assert.rejects(registerTradeReduction(tx,await prepareTradeReduction(form({...input(base.id,'2'),sheet}),'이전월.xlsx',await file(randomUUID().replace(/-/g,''),'-1','0','2026-10-20','0012345678',kind))),/다른 달 감액/);
+   for(const reductionId of [second.reductionId,first.reductionId])await undoTradeReduction(tx,form({reductionId,version:'0',requestId:randomUUID(),reason:'최근 순서 감액 정정'}));assert.equal((await captureAccounting(tx,'2026-10')).digest,before.digest);assert.equal((await tx.tradeDocument.findUniqueOrThrow({where:{id:base.id}})).grossAmount.toFixed(0),'1100');
+  }throw rollback;
+ },{timeout:60000}),e=>e===rollback);}finally{await db.$disconnect();}
+});
+
+test('다른 달 감액 후 남은 청구의 전액취소는 차액을 이중 반영하지 않고 실제 지급액만 환급한다',async()=>{
+ const db=getDb(),rollback=new Error('LATER_REDUCTION_CANCEL_CHAIN');try{await assert.rejects(db.$transaction(async tx=>{
+  for(const kind of ['PURCHASE','SALE'] as const){for(const paid of ['0','400','880']){
+   const base=await original(tx,kind),sheet=kind==='SALE'?'매 출':'매 입';await tx.tradeDocument.update({where:{id:base.id},data:{dueDate:new Date('2026-11-30'),paymentMethod:'BANK_TRANSFER'}});
+   const account=await tx.bankAccount.create({data:{companyId:COMPANY_ID,bankName:'검증은행',label:randomUUID()}}),before=await captureAccounting(tx,'2026-10');await tx.accountingPeriodLock.upsert({where:{companyId_period:{companyId:COMPANY_ID,period:'2026-10'}},create:{companyId:COMPANY_ID,period:'2026-10',packageId:'합성',digest:'합성',locked:true},update:{locked:true}});
+   const reduction=await registerTradeReduction(tx,await prepareLaterReduction(form({...input(base.id),sheet,laterReductionConfirmed:'on'}),'감액.xlsx',await file(randomUUID().replace(/-/g,''),'-200','-20','2026-11-01','0012345678',kind)),'LATER');let d=await tx.tradeDocument.findUniqueOrThrow({where:{id:base.id}});
+   if(paid!=='0'){await connectTradeCashPlan(tx,form({documentId:d.id,version:String(d.version),requestId:randomUUID(),mode:'NEW',noDuplicate:'on',reason:'감액 후 순액 예산 연결'}));d=await tx.tradeDocument.findUniqueOrThrow({where:{id:d.id}});const bank=await tx.bankTransaction.create({data:{accountId:account.id,tradedDate:new Date('2026-11-02'),direction:kind==='PURCHASE'?'OUT':'IN',amount:paid,description:'감액 후 순액 지급'}});await linkTradeBank(tx,form({documentId:d.id,version:String(d.version),transactionId:bank.id,requestId:randomUUID(),amount:paid,note:'감액 후 실제 지급 대조'}));d=await tx.tradeDocument.findUniqueOrThrow({where:{id:d.id}});}
+   const cancelValues={requestId:randomUUID(),sheet,sourceRow:'2',originalDocumentId:d.id,version:String(d.version),reason:'감액 후 나머지 청구도 계약 해제',laterCancellationConfirmed:'on',laterPaidCancellationConfirmed:'on',refundDueDate:'2026-11-30'},bytes=await file(randomUUID().replace(/-/g,''),'-800','-80','2026-11-03','0012345678',kind);
+   const saved=paid==='0'?await registerLaterCancellation(tx,await prepareLaterCancellation(form(cancelValues),'잔액취소.xlsx',bytes)):await registerPaidCancellation(tx,await prepareLaterPaidCancellation(form(cancelValues),'잔액취소.xlsx',bytes),'LATER');
+   const c=await tx.tradeCancellation.findUniqueOrThrow({where:{id:saved.cancellationId}});if(paid!=='0')assert.equal((await tx.cashPlan.findUniqueOrThrow({where:{id:c.refundPlanId!}})).plannedAmount.toFixed(0),paid);else assert.equal(c.refundPlanId,null);
+   assert.equal((await captureAccounting(tx,'2026-10')).digest,before.digest);const tax=await readTaxPeriod(tx,COMPANY_ID,new Date('2026-01-01'),new Date('2027-01-01'));assert.equal(tax.rows.filter(r=>[d.id,reduction.reductionId,c.id].includes(r.id)).reduce((v,r)=>v+BigInt(r.grossAmount.toFixed(0)),0n),0n);
+   const november=await captureAccounting(tx,'2026-11');assert.equal(november.snapshot.tables.find(t=>t.title==='매입 매출')!.rows.filter(r=>[reduction.reductionId,c.id].includes(r[0])).reduce((v,r)=>v+BigInt(r[8]),0n),-1100n);
+   await undoTradeCancellation(tx,form({cancellationId:c.id,version:'0',requestId:randomUUID(),reason:'나머지 청구 취소만 입력 정정'}));d=await tx.tradeDocument.findUniqueOrThrow({where:{id:d.id}});assert.equal(d.voidedAt,null);assert.equal(d.grossAmount.toFixed(0),'880');assert.equal(d.settledAmount.toFixed(0),paid);assert.equal((await captureAccounting(tx,'2026-10')).digest,before.digest);
+   await tx.accountingPeriodLock.update({where:{companyId_period:{companyId:COMPANY_ID,period:'2026-10'}},data:{locked:false}});
+  }}throw rollback;
+ },{timeout:120000}),e=>e===rollback);}finally{await db.$disconnect();}
+});
+
+test('같은 달 감액 뒤 남은 청구의 정식 전액취소도 원본 증빙으로만 허용한다',async()=>{
+ const db=getDb(),rollback=new Error('SAME_CREDIT_CANCEL_CHAIN');try{await assert.rejects(db.$transaction(async tx=>{
+  for(const paid of ['0','400']){
+   const base=await original(tx),partial=await registerTradeReduction(tx,await prepareTradeReduction(form(input(base.id)),'감액.xlsx',await file(randomUUID().replace(/-/g,''),'-200','-20','2026-10-10')));let d=await tx.tradeDocument.findUniqueOrThrow({where:{id:base.id}});
+   await assert.rejects(voidTradeDocument(tx,form({documentId:d.id,version:String(d.version),requestId:randomUUID(),reason:'증빙 없는 일반 취소 시도'})),/부분 감액/);
+   if(paid!=='0'){const a=await tx.bankAccount.create({data:{companyId:COMPANY_ID,bankName:'검증은행',label:randomUUID()}}),b=await tx.bankTransaction.create({data:{accountId:a.id,tradedDate:new Date('2026-10-15'),direction:'OUT',amount:paid,description:'감액 후 일부 지급'}});await linkTradeBank(tx,form({documentId:d.id,version:String(d.version),transactionId:b.id,requestId:randomUUID(),amount:paid,note:'실제 지급 대조'}));d=await tx.tradeDocument.findUniqueOrThrow({where:{id:d.id}});}
+   const data=form({...input(d.id,String(d.version)),cancellationConfirmed:'on',paidCancellationConfirmed:'on',refundDueDate:'2026-11-30'}),bytes=await file(randomUUID().replace(/-/g,''),'-800','-80','2026-10-20');
+   const prepared=paid==='0'?await prepareTradeCancellation(data,'잔액취소.xlsx',bytes):await (await import('../src/lib/trade-paid-cancellations')).preparePaidCancellation(data,'잔액취소.xlsx',bytes);
+   const saved=paid==='0'?await registerTradeCancellation(tx,prepared):await registerPaidCancellation(tx,prepared as Awaited<ReturnType<typeof import('../src/lib/trade-paid-cancellations').preparePaidCancellation>>);
+   assert.ok((await tx.tradeDocument.findUniqueOrThrow({where:{id:d.id}})).voidedAt);assert.equal((await readTaxPeriod(tx,COMPANY_ID,new Date('2026-10-01'),new Date('2026-11-01'))).rows.some(r=>r.id===d.id||r.id===partial.reductionId||r.id===saved.cancellationId),false);
+   await undoTradeCancellation(tx,form({cancellationId:saved.cancellationId,version:'0',requestId:randomUUID(),reason:'정식 전액취소 입력 오류 정정'}));assert.equal((await tx.tradeDocument.findUniqueOrThrow({where:{id:d.id}})).grossAmount.toFixed(0),'880');
+  }throw rollback;
+ },{timeout:60000}),e=>e===rollback);}finally{await db.$disconnect();}
+});

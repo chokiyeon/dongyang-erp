@@ -1,3 +1,4 @@
+import {latestLaterReduction} from "./trade-period";
 import {assertPeriodsOpen} from "./period-guard";
 import {createHash,randomUUID} from "node:crypto";
 import type {Prisma} from "@/generated/prisma/client";
@@ -40,7 +41,7 @@ export async function connectTradeCashPlan(tx:Prisma.TransactionClient,d:FormDat
  const replay=await tx.tradeDocumentChange.findUnique({where:{requestId},include:{document:true}});if(replay){if(replay.document.companyId!==COMPANY_ID||replay.fingerprint!==fingerprint)throw new InputError("다른 내용으로 사용된 요청입니다.");return id;}
  const doc=await tx.tradeDocument.findFirst({where:{id,companyId:COMPANY_ID,voidedAt:null},include:{cashPlan:{include:{settlements:{where:{voidedAt:null}}}},monthlyPayment:true,links:{where:{voidedAt:null}}}});
  if(!doc||doc.version!==version)throw new InputError("매입·매출 자료가 변경되었습니다. 다시 조회하세요.");
- await assertPeriodsOpen(tx,doc.issuedDate,doc.dueDate);
+ await assertPeriodsOpen(tx,(await latestLaterReduction(tx,doc.id))?.issuedDate??doc.issuedDate,doc.dueDate);
  if(mode==="DETACH"){
   if(!doc.cashPlan||doc.cashPlan.settlements.length)throw new InputError("연결된 은행 실적을 먼저 매입·매출에서 해제해야 예산안 연결을 해제할 수 있습니다.");
   const closed=await tx.cashPlan.updateMany({where:{id:doc.cashPlan.id,companyId:COMPANY_ID,version:doc.cashPlan.version},data:{completedAt:new Date(),completionNote:`매입·매출 연결 해제: ${reason}`,version:{increment:1}}});if(closed.count!==1)throw new InputError("자금예정이 변경되었습니다.");
