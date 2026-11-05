@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Fragment } from "react";
 import type { BudgetEntry, BudgetDay } from "@/lib/budget-sheet";
-import { won } from "@/lib/cash";
+import { won } from "@/lib/cash-types";
 
 function Entry({ entry }: { entry?: BudgetEntry }) {
   return <><td className="budget-date">{entry?.date.slice(5) ?? "—"}</td><td>{entry?.category ?? ""}</td><td className="budget-detail">{entry && <><Link href={`/cash?process=${entry.planId}`} className="underline decoration-slate-300 underline-offset-4">{entry.title}</Link><span className={`budget-state ${entry.state === "실제" ? "budget-actual" : ""}`}>{entry.state}</span>{entry.state !== "실제" && entry.originalDate < entry.date && <small className="block text-amber-800">기한 경과 · 원예정 {entry.originalDate}</small>}</>}</td><td className="budget-money">{entry ? won(entry.amount) : ""}</td></>;

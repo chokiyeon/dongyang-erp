@@ -8,6 +8,7 @@ datasource db {
 }
 
 model Company {
+  vehicleCostAdjustments VehicleCostAdjustment[]
   tradeCostAdjustments TradeCostAdjustment[]
   laborImportFiles LaborImportFile[]
   tradeReductions TradeReduction[]
@@ -417,6 +418,7 @@ enum InputVatReview {
   NONDEDUCTIBLE
 }
 model TradeDocument {
+  vehicleCostAdjustments VehicleCostAdjustment[]
   costAdjustments TradeCostAdjustment[]
   reductions TradeReduction[]
   cancellations TradeCancellation[]
@@ -864,6 +866,7 @@ model VehicleAssignment {
   createdAt DateTime @default(now())
 }
 model VehicleExpense {
+  periodAdjustments VehicleCostAdjustment[]
   cashPlanId String? @unique
   cashPlan CashPlan? @relation(fields:[cashPlanId],references:[id],onDelete:Restrict)
   documentId String? @unique
@@ -1255,6 +1258,7 @@ model PartnerIdentityChange {
 }
 
 model TradeCancellation {
+ vehicleCostAdjustment VehicleCostAdjustment?
  costAdjustment TradeCostAdjustment?
  unpaidPlanBasis String?
  stockReturns StockMovement[]
@@ -1302,6 +1306,7 @@ model TradeCancellationChange {
 }
 
 model TradeReduction {
+ vehicleCostAdjustment VehicleCostAdjustment?
  costAdjustment TradeCostAdjustment?
  cashPlanTracked Boolean @default(false)
  cashPlanBeforeId String?
@@ -1438,4 +1443,29 @@ model TradeCostAdjustmentEntry {
  amount Decimal @db.Decimal(20,0)
  @@unique([adjustmentId,projectId])
  @@index([projectId,adjustmentId])
+}
+
+model VehicleCostAdjustment {
+ id String @id @default(cuid())
+ companyId String
+ company Company @relation(fields:[companyId],references:[id],onDelete:Restrict)
+ expenseId String
+ expense VehicleExpense @relation(fields:[expenseId],references:[id],onDelete:Restrict)
+ documentId String
+ document TradeDocument @relation(fields:[documentId],references:[id],onDelete:Restrict)
+ reductionId String? @unique
+ reduction TradeReduction? @relation(fields:[reductionId],references:[id],onDelete:Restrict)
+ cancellationId String? @unique
+ cancellation TradeCancellation? @relation(fields:[cancellationId],references:[id],onDelete:Restrict)
+ effectiveDate DateTime @db.Date
+ beforeAmount Decimal @db.Decimal(20,0)
+ afterAmount Decimal @db.Decimal(20,0)
+ baseBasis String
+ basisBefore String
+ baseSnapshot Json
+ reason String
+ createdAt DateTime @default(now())
+ @@index([companyId,effectiveDate])
+ @@index([expenseId,effectiveDate])
+ @@index([documentId,effectiveDate])
 }

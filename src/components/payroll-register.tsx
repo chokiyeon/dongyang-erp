@@ -4,7 +4,7 @@ import Link from "next/link";
 import type {ReactNode} from "react";
 import type { laborMonth } from "@/lib/labor";
 import type { payrollBasis } from "@/lib/payroll";
-import { cashSummary } from "@/lib/cash";
+import { cashSummary } from "@/lib/cash-types";
 
 type Month = Awaited<ReturnType<typeof laborMonth>>;
 type Payment = { employeeId: string; netAmount: { toFixed: (n:number)=>string }; basis: string; snapshot?:unknown; cashPlan: Parameters<typeof cashSummary>[0] };

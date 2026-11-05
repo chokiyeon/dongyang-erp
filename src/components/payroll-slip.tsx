@@ -1,4 +1,4 @@
-import {won} from "@/lib/cash";
+import {won} from "@/lib/cash-types";
 export type PayrollSlipData={period:string;company:string;employee:string;code:string;kind:string;dueDate:string;account:string;review:string[];earnings:{label:string;amount:string|null;display?:string}[];deductions:{label:string;amount:string|null;display?:string}[];earningTotal:string|null;deductionTotal:string|null;adjustment:string|null;net:string;actual:string;remaining:string;reason:string;daily:boolean;method:string;units:string;rate:string;dailyCalculationConfirmed?:boolean};
 export function PayrollSlip({data:d}:{data:PayrollSlipData}){
  const rows=Math.max(d.earnings.length,d.deductions.length);const money=(value:string|null)=>value===null?"미확인":won(BigInt(value));
