@@ -90,14 +90,14 @@ export async function saveTradeDocument(tx: Prisma.TransactionClient, data: Form
   await refreshTradeCashPlan(tx,documentId);
   return documentId;
 }
-export async function voidTradeDocument(tx: Prisma.TransactionClient, data: FormData, options:{verifiedCredit?:boolean;verifiedStockReturns?:boolean}={}) {
+export async function voidTradeDocument(tx: Prisma.TransactionClient, data: FormData, options:{verifiedCredit?:boolean;verifiedStockReturns?:boolean;verifiedVehicleCosts?:boolean}={}) {
   const id = text(data, "documentId", "문서", true, 50); const version = revision(data); const reason = text(data, "reason", "취소 사유", true, 300); const requestId = request(data);
   const previous = await tx.tradeDocument.findFirst({ where: { id, companyId: COMPANY_ID } });
   if (!previous) throw new InputError("회사 문서를 선택해 주세요."); if (previous.voidedAt) return id;
   if (previous.settledAmount.toFixed(0) !== "0") throw new InputError("은행 연결을 먼저 해제한 뒤 취소해 주세요.");
   if(!options.verifiedCredit&&await tx.tradeReduction.count({where:{companyId:COMPANY_ID,originalDocumentId:id,voidedAt:null}}))throw new InputError("부분 감액 이력이 있는 청구입니다. 감액 등록 정정 또는 별도 후속 정산을 먼저 확인하세요.");
   if(await tx.sourceCostReview.count({where:{companyId:COMPANY_ID,sourceType:"TRADE",sourceId:id,active:true}}))throw new InputError("공사별 매입 원가 배부를 먼저 취소하세요.");
-  if(await tx.vehicleExpense.count({where:{documentId:id}}))throw new InputError("차량 비용의 매입 연결을 먼저 해제하세요.");
+  if(!options.verifiedVehicleCosts&&await tx.vehicleExpense.count({where:{documentId:id}}))throw new InputError("차량 비용의 매입 연결을 먼저 해제하세요.");
   if(!options.verifiedStockReturns&&await tx.stockMovement.count({where:{documentId:id,voidedAt:null}}))throw new InputError("연결한 품목 입고를 먼저 확인·취소하세요. 실제 사용한 자재의 반품·환불은 원본을 삭제하지 말고 별도 정산하세요.");
   await assertPeriodsOpen(tx,previous.issuedDate);
   const changed = await tx.tradeDocument.updateMany({ where: { id, companyId: COMPANY_ID, version, voidedAt: null, settledAmount: 0 }, data: { voidedAt: new Date(), voidReason: reason, version: { increment: 1 } } });

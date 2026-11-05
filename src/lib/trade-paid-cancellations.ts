@@ -1,3 +1,4 @@
+import {prepareVehicleSettlement,applyVehicleSettlement,prepareVehicleRestore,vehicleRestoreIdentity} from './trade-vehicle-settlement';
 import {prepareCostCancellation,cancelCostSettlement,prepareCostRestore,applyCostSettlement} from './trade-cost-settlement';
 import {assertStockCancellationMatch,writeStockCancellationMatches} from './stock-returns';
 import {paidReductionRefundAmount} from './trade-reduction-types';
@@ -51,9 +52,9 @@ export async function paidOriginal(tx: Prisma.TransactionClient, id: string) {
     const basis = digest({ ...(credits.length?{credits:credits.map(r=>({id:r.id,plan:r.refundPlanId,amount:r.refundPlan!.plannedAmount.toFixed(0)}))}:{}), id: d.id, partnerId: d.partnerId, approval: d.taxApprovalNumber, gross: d.grossAmount.toFixed(0), supply: d.supplyAmount.toFixed(0), tax: d.taxAmount.toFixed(0), cashPlanId: d.cashPlanId, links: d.links.map(l => ({ id: l.id, bank: l.transactionId, amount: l.amount.toFixed(0), date: l.transaction.tradedDate.toISOString() })).sort((a, b) => a.id.localeCompare(b.id)) });
     return { document: d, paidAmount:paidAmount!, basis, lastPaid: new Date(Math.max(...d.links.map(l => l.transaction.tradedDate.getTime()))) };
 }
-async function assertNoCostLinks(tx: Prisma.TransactionClient, id: string, cutoff?:Date,stockVerified=false) {
+async function assertNoCostLinks(tx: Prisma.TransactionClient, id: string, cutoff?:Date,stockVerified=false,vehicleVerified=false) {
     if(cutoff)await assertCreditBalance(tx,id,cutoff);
-    if (!cutoff && await tx.tradeReduction.count({ where: { originalDocumentId: id, companyId: COMPANY_ID, voidedAt: null } }) || await tx.sourceCostReview.count({ where: { companyId: COMPANY_ID, sourceType: 'TRADE', sourceId: id, active: true } }) || !stockVerified && await tx.stockMovement.count({ where: { documentId: id, voidedAt: null } }) || await tx.vehicleExpense.count({ where: { documentId: id } }))
+    if (!cutoff && await tx.tradeReduction.count({ where: { originalDocumentId: id, companyId: COMPANY_ID, voidedAt: null } }) || await tx.sourceCostReview.count({ where: { companyId: COMPANY_ID, sourceType: 'TRADE', sourceId: id, active: true } }) || !stockVerified && await tx.stockMovement.count({ where: { documentId: id, voidedAt: null } }) || !vehicleVerified && await tx.vehicleExpense.count({ where: { documentId: id } }))
         throw new InputError('부분 감액·자재·차량·원가 배부 연결이 있어 별도 정산이 필요합니다.');
 }
 export async function registerPaidCancellation(tx: Prisma.TransactionClient, source: Awaited<ReturnType<typeof preparePaidCancellation>>,scope:'SAME'|'LATER'='SAME') {
@@ -80,8 +81,10 @@ export async function registerPaidCancellation(tx: Prisma.TransactionClient, sou
     if (!business || business !== normalizeBusinessNumber(row.raw[row.kind === 'SALE' ? 9 : 4] ?? ''))
         throw new InputError('원본과 수정증빙 사업자번호가 다릅니다.');
     const stockVerified=await assertStockCancellationMatch(tx,d.id,source.stockReturnIds,row.supply);
+    const vehicleSettlement=await prepareVehicleSettlement(tx,d.id,source.vehicleCost,scope);
     const costCancellation=await prepareCostCancellation(tx,d.id,source.costAllocation,scope);const costApplied=costCancellation?await cancelCostSettlement(tx,d.id,costCancellation,source.requestId,source.reason):null;
-    await assertNoCostLinks(tx,d.id,new Date(row.date),stockVerified);
+    await assertNoCostLinks(tx,d.id,new Date(row.date),stockVerified,Boolean(vehicleSettlement));
+    const vehicleApplied=vehicleSettlement?await applyVehicleSettlement(tx,vehicleSettlement,vehicleSettlement.amount.toFixed(0),true,source.requestId,source.reason,'tradeCancellation'):null;
     if (await tx.tradeDocument.count({ where: { companyId: COMPANY_ID, taxApprovalNumber: row.approval, voidedAt: null } }) || await tx.tradeReduction.count({ where: { companyId: COMPANY_ID, taxApprovalNumber: row.approval, voidedAt: null } }) || await tx.tradeCancellation.count({ where: { companyId: COMPANY_ID, voidedAt: null, OR: [{ originalDocumentId: d.id }, { taxApprovalNumber: row.approval }, { originalApproval: row.approval }] } }))
         throw new InputError('이미 사용한 수정증빙 또는 취소 원본입니다.');
     const changed = await tx.tradeDocument.updateMany({ where: { id: d.id, companyId: COMPANY_ID, version: d.version, voidedAt: null, settledAmount: d.settledAmount }, data: { voidedAt: new Date(), voidReason: `기지급 전액취소 · 환급 별도: ${source.reason}`.slice(0, 300), version: { increment: 1 } } });
@@ -96,7 +99,7 @@ export async function registerPaidCancellation(tx: Prisma.TransactionClient, sou
     const file = await tx.tradeWorkbookFile.upsert({ where: { companyId_checksum: { companyId: COMPANY_ID, checksum: source.checksum } }, create: { companyId: COMPANY_ID, checksum: source.checksum, fileName: source.fileName, content: Buffer.from(source.content) }, update: {}, select: { id: true } });
     const record = await tx.tradeCancellation.create({ data: { companyId: COMPANY_ID, originalDocumentId: d.id, originalApproval: d.taxApprovalNumber, taxApprovalNumber: row.approval, issuedDate: new Date(row.date), supplyAmount: row.supply, taxAmount: row.tax, grossAmount: row.gross, fileId: file.id, sheet: row.sheet, sourceRow: row.row, headers: source.headers, cells: row.raw, reason: source.reason, requestId: source.requestId, fingerprint: source.fingerprint, documentVersionAfter: d.version + 1, refundPlanId: plan.id, paymentBasis: basis } });
     if(stockVerified)await writeStockCancellationMatches(tx,source.stockReturnIds,record.id,source.requestId,source.reason);
-    await tx.tradeDocumentChange.create({ data: { documentId: d.id, requestId: source.requestId, fingerprint: source.fingerprint, previous: { voided: false, settledAmount: d.settledAmount.toFixed(0) }, next: { voided: true, cancellationId: record.id,...(costApplied?{costSettlement:costApplied}:{}), refundPlanId: plan.id, paymentPreserved: true, unpaidCancelled:d.grossAmount.gt(paidAmount)?d.grossAmount.minus(paidAmount).toFixed(0):'0', refundAmount:paidAmount.toFixed(0) }, reason: source.reason } });
+    await tx.tradeDocumentChange.create({ data: { documentId: d.id, requestId: source.requestId, fingerprint: source.fingerprint, previous: { voided: false, settledAmount: d.settledAmount.toFixed(0) }, next: { voided: true, cancellationId: record.id,...(vehicleApplied?{vehicleSettlement:vehicleApplied}:{}),...(costApplied?{costSettlement:costApplied}:{}), refundPlanId: plan.id, paymentPreserved: true, unpaidCancelled:d.grossAmount.gt(paidAmount)?d.grossAmount.minus(paidAmount).toFixed(0):'0', refundAmount:paidAmount.toFixed(0) }, reason: source.reason } });
     await tx.tradeCancellationChange.create({ data: { cancellationId: record.id, requestId: source.requestId, fingerprint: source.fingerprint, operation: scope==='LATER'?LATER_CANCELLATION:'REGISTER_PAID', reason: source.reason } });
     return { id: d.id, cancellationId: record.id, replayed: false };
 }
@@ -104,7 +107,7 @@ export async function undoPaidCancellation(tx: Prisma.TransactionClient, data: F
     const id = text(data, 'cancellationId', '취소 증빙', true, 50), version = revision(data), requestId = text(data, 'requestId', '요청', true, 50), reason = text(data, 'reason', '등록 정정 사유', true, 300);
     if (!/^[0-9a-f-]{36}$/i.test(requestId))
         throw new InputError('정정 화면을 다시 여세요.');
-    const fingerprint = digest({ id, version, reason, operation: 'UNDO',...(data.has('costReviewVersion')?{costReviewVersion:data.get('costReviewVersion'),costRestoreConfirmed:data.get('costRestoreConfirmed')}: {}) });
+    const fingerprint = digest({ id, version, reason, operation: 'UNDO',...vehicleRestoreIdentity(data),...(data.has('costReviewVersion')?{costReviewVersion:data.get('costReviewVersion'),costRestoreConfirmed:data.get('costRestoreConfirmed')}: {}) });
     await acquirePeriodReviewLock(tx);
     const replay = await tx.tradeCancellationChange.findUnique({ where: { requestId }, include: { cancellation: true } });
     if (replay) {
@@ -124,8 +127,8 @@ export async function undoPaidCancellation(tx: Prisma.TransactionClient, data: F
     if (!d.voidedAt || d.version !== c.documentVersionAfter || basis !== c.paymentBasis || !c.refundPlan.plannedAmount.equals(paidAmount) || c.refundPlan.direction !== (d.kind === 'PURCHASE' ? 'IN' : 'OUT'))
         throw new InputError('원래 지급 내역이 변경되어 취소 등록을 복원할 수 없습니다.');
     const stockVerified=await assertStockCancellationMatch(tx,d.id,c.stockReturns.map(r=>r.id),c.supplyAmount.toFixed(0),c.id);
-    const costRestore=await prepareCostRestore(tx,{...c,costRecordType:'CANCELLATION'},data);
-    await assertNoCostLinks(tx,d.id,c.issuedDate,stockVerified);
+    const costRestore=await prepareCostRestore(tx,{...c,costRecordType:'CANCELLATION'},data);const vehicleRestore=await prepareVehicleRestore(tx,{...c,vehicleRecordType:'CANCELLATION'},data);
+    await assertNoCostLinks(tx,d.id,c.issuedDate,stockVerified,Boolean(vehicleRestore));
     const p = await tx.cashPlan.updateMany({ where: { id: c.refundPlan.id, companyId: COMPANY_ID, version: c.refundPlan.version }, data: { completedAt: new Date(), completionNote: `기지급 취소 등록 정정: ${reason}`.slice(0, 500), version: { increment: 1 } } });
     if (p.count !== 1)
         throw new InputError('환급 일정이 변경되었습니다.');
@@ -136,7 +139,7 @@ export async function undoPaidCancellation(tx: Prisma.TransactionClient, data: F
         const reopened=await tx.cashPlan.updateMany({where:{id:d.cashPlan.id,companyId:COMPANY_ID,version:d.cashPlan.version,completedAt:d.cashPlan.completedAt,completionNote:cancelledPartialPlanNote},data:{completedAt:null,completionNote:null,version:{increment:1}}});
         if(reopened.count!==1)throw new InputError('복원할 원 지급 예정이 변경되었습니다.');
     }
-    if(costRestore)await applyCostSettlement(tx,d.id,costRestore,requestId,reason);
+    if(costRestore)await applyCostSettlement(tx,d.id,costRestore,requestId,reason);if(vehicleRestore)await applyVehicleSettlement(tx,vehicleRestore.expense,vehicleRestore.amount,false,requestId,reason,'undoTradeCredit');
     await tx.tradeCancellation.update({ where: { id }, data: { voidedAt: new Date(), voidReason: reason, version: { increment: 1 } } });
     if(stockVerified)await writeStockCancellationMatches(tx,c.stockReturns.map(r=>r.id),null,requestId,reason);
     await tx.tradeDocumentChange.create({ data: { documentId: d.id, requestId, fingerprint, previous: { voided: true }, next: { voided: false, cancellationId: id, paymentPreserved: true }, reason } });
