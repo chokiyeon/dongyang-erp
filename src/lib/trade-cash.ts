@@ -41,7 +41,7 @@ export async function connectTradeCashPlan(tx:Prisma.TransactionClient,d:FormDat
  const replay=await tx.tradeDocumentChange.findUnique({where:{requestId},include:{document:true}});if(replay){if(replay.document.companyId!==COMPANY_ID||replay.fingerprint!==fingerprint)throw new InputError("다른 내용으로 사용된 요청입니다.");return id;}
  const doc=await tx.tradeDocument.findFirst({where:{id,companyId:COMPANY_ID,voidedAt:null},include:{cashPlan:{include:{settlements:{where:{voidedAt:null}}}},monthlyPayment:true,links:{where:{voidedAt:null}}}});
  if(!doc||doc.version!==version)throw new InputError("매입·매출 자료가 변경되었습니다. 다시 조회하세요.");
- if(await tx.tradeReduction.count({where:{companyId:COMPANY_ID,originalDocumentId:id,voidedAt:null,paymentBasis:{not:null}}}))throw new InputError('기지급 부분 감액의 원 지급 예산안은 연결을 유지합니다. 감액 정산부터 확인하세요.');
+ if(await tx.tradeReduction.count({where:{companyId:COMPANY_ID,originalDocumentId:id,voidedAt:null,OR:[{paymentBasis:{not:null}},{cashPlanTracked:true,cashPlanBeforeId:{not:null}}]}}))throw new InputError('감액의 지급·예산안 대조 기준을 유지해야 합니다. 감액 등록 정정부터 확인하세요.');
  await assertPeriodsOpen(tx,(await latestLaterReduction(tx,doc.id))?.issuedDate??doc.issuedDate,doc.dueDate);
  if(mode==="DETACH"){
   if(!doc.cashPlan||doc.cashPlan.settlements.length)throw new InputError("연결된 은행 실적을 먼저 매입·매출에서 해제해야 예산안 연결을 해제할 수 있습니다.");
