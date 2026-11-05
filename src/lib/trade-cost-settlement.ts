@@ -1,4 +1,4 @@
-import {periodCostState,preparePeriodCost,applyPeriodCost,periodCostRestore,invalidatePeriodProjects,type PreparedPeriodCost} from './trade-cost-period';
+import {periodCostState,preparePeriodCost,preparePeriodCostCancellation,applyPeriodCost,periodCostRestore,invalidatePeriodProjects,type PreparedPeriodCost} from './trade-cost-period';
 import {createHash} from 'node:crypto';
 import type {Prisma,PrismaClient} from '@/generated/prisma/client';
 import {COMPANY_ID} from './constants';
@@ -65,11 +65,15 @@ export async function prepareCostRestore(tx:Prisma.TransactionClient,record:{id:
  const doc=await tx.tradeDocument.findFirstOrThrow({where:{id:record.originalDocumentId,companyId:COMPANY_ID}});if(restore.incurredDate!==doc.issuedDate.toISOString())throw new InputError('원가 발생일과 원 청구를 확인하세요.');await assertPeriodsOpen(tx,doc.issuedDate);
  return restore.proposal;
 }
-export async function prepareCostCancellation(tx:Prisma.TransactionClient,id:string,proposal:CreditCostAllocation|undefined,scope:'SAME'|'LATER'){
- if(scope==='LATER'&&await tx.sourceCostReview.count({where:{companyId:COMPANY_ID,sourceType:'TRADE',sourceId:id,active:true}}))throw new InputError('다른 달 전액취소의 공사 배부는 별도 기간 정산이 필요합니다.');
+export async function prepareCostCancellation(tx:Prisma.TransactionClient,id:string,proposal:CreditCostAllocation|undefined,scope:'SAME'|'LATER',effectiveDate?:string):Promise<PreparedCreditCost|null>{
+ if(scope==='LATER'){
+  const review=await tx.sourceCostReview.findFirst({where:{companyId:COMPANY_ID,sourceType:'TRADE',sourceId:id,active:true}});if(!review){if(proposal)throw new InputError('취소할 원가 배부 연결이 없습니다.');return null;}
+  if(!proposal||!effectiveDate)throw new InputError('다른 달 전액취소의 현재 공사 배부를 확인하세요.');return preparePeriodCostCancellation(tx,id,proposal,effectiveDate);
+ }
  return prepareCostSettlement(tx,id,proposal,scope,{supply:'0',tax:'0'});
 }
-export async function cancelCostSettlement(tx:Prisma.TransactionClient,id:string,proposal:CreditCostAllocation,request:string,reason:string){
+export async function cancelCostSettlement(tx:Prisma.TransactionClient,id:string,proposal:PreparedCreditCost,request:string,reason:string,cancellationId?:string){
+ if(proposal.period){if(!cancellationId)throw new InputError('기간 원가의 전액취소 증빙을 확인하세요.');return applyPeriodCost(tx,id,{...proposal,period:proposal.period},'',reason,cancellationId);}
  const data=new FormData(),rid=requestId(request);
  for(const[k,v]of Object.entries({sourceType:'TRADE',sourceId:id,requestId:rid,version:String(proposal.version),reason}))data.set(k,v);
  const reviewId=await saveSourceCosts(tx,'void',data),change=await tx.sourceCostChange.findUniqueOrThrow({where:{requestId:rid},select:{id:true}});return{reviewId,changeId:change.id};
