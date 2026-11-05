@@ -1,0 +1,5 @@
+import Link from 'next/link';
+import type {creditCostRestore} from '@/lib/trade-cost-settlement';
+export function CreditCostRestoreFields({restore,documentId}:{restore:NonNullable<Awaited<ReturnType<typeof creditCostRestore>>>;documentId:string}){
+ return <div className="grid gap-2 rounded border p-3"><h3>공사 원가 배부 함께 복원</h3><p>현재 배부 {restore.currentActive?'유효':'취소됨'} · 장부 총원가 {BigInt(restore.currentTotal).toLocaleString()}원 → 복원 총원가 {BigInt(restore.totalAmount).toLocaleString()}원</p><p>현재 본사 공통 {BigInt(restore.currentCommon).toLocaleString()}원 · 현재 현장 {restore.currentEntries.map(e=>`${e.label}: ${BigInt(e.amount).toLocaleString()}원`).join(' / ')||'없음'}</p><p>복원 본사 공통 {BigInt(restore.proposal.commonAmount).toLocaleString()}원 · 복원 현장 {restore.entries.map(e=>`${e.label}: ${BigInt(e.amount).toLocaleString()}원`).join(' / ')||'없음'}</p><input type="hidden" name="costReviewVersion" value={restore.proposal.version}/><label><input type="checkbox" name="costRestoreConfirmed" required/>현재 배부를 위 수정증빙 반영 전 배부로 복원하고 공사 이익을 다시 검토하는 것을 확인했습니다.</label><Link href={`/source-costs?type=TRADE&source=${documentId}`}>현재 원가 배부 상세</Link></div>;
+}
