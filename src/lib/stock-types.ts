@@ -1,5 +1,5 @@
 import {InputError} from "./validation";
-export const STOCK_KINDS={OPENING:"기초재고",IN:"매입·직납 입고",TRANSFER:"창고·현장 이동/반납",OUT:"현장 사용·출고"} as const;
+export const STOCK_KINDS={OPENING:"기초재고",IN:"매입·직납 입고",TRANSFER:"창고·현장 이동/반납",OUT:"현장 사용·출고",RETURN:"공급처 반품",VALUE_CREDIT:"입고 단가 감액 (수량 유지)"} as const;
 export function stockQuantity(value:string){if(!/^(?:0|[1-9]\d{0,15})(?:\.\d{1,4})?$/.test(value))throw new InputError("수량·단가는 소수 넷째 자리까지, 정수 16자리 이내로 입력하세요.");const [a,b=""]=value.split(".");return BigInt(a)*10000n+BigInt(b.padEnd(4,"0"));}
 export function stockDisplay(value:bigint){const sign=value<0n?"-":"";const n=value<0n?-value:value;return `${sign}${n/10000n}${n%10000n?`.${(n%10000n).toString().padStart(4,"0").replace(/0+$/,"")}`:""}`;}
 export type StockStep={id:string;sequence:number;movedDate:Date;fromId:string|null;toId:string|null;quantity:{toFixed(n:number):string}};

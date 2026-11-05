@@ -931,6 +931,11 @@ model StockLocation {
  @@unique([companyId,code])
 }
 model StockMovement {
+ returnOfId String?
+ returnOf StockMovement? @relation("SupplierReturns",fields:[returnOfId],references:[id],onDelete:Restrict)
+ supplierReturns StockMovement[] @relation("SupplierReturns")
+ reductionId String?
+ reduction TradeReduction? @relation(fields:[reductionId],references:[id],onDelete:Restrict)
  id String @id @default(cuid())
  sequence Int @unique @default(autoincrement())
  materialId String
@@ -952,6 +957,8 @@ model StockMovement {
  createdAt DateTime @default(now())
  @@unique([materialId,reference])
  @@index([materialId,movedDate,sequence])
+ @@index([returnOfId])
+ @@index([reductionId])
 }
 model StockChange {
  id String @id @default(cuid())
@@ -1284,6 +1291,7 @@ model TradeCancellationChange {
 }
 
 model TradeReduction {
+ stockReturns StockMovement[]
   refundPlanId String? @unique
   refundPlan CashPlan? @relation("ReductionRefund",fields:[refundPlanId],references:[id],onDelete:Restrict)
   paidAmount Decimal? @db.Decimal(20,0)

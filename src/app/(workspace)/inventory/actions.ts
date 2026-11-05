@@ -13,3 +13,5 @@ export async function saveMovementAction(_s:FormState,d:FormData){return perform
 export async function voidMovementAction(_s:FormState,d:FormData){return perform("void",d);}
 
 export async function linkMovementAction(_s:FormState,d:FormData){return perform("link",d);}
+
+export async function saveReturnAction(_s:FormState,d:FormData){return perform("return",d);}
