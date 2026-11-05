@@ -931,6 +931,8 @@ model StockLocation {
  @@unique([companyId,code])
 }
 model StockMovement {
+ cancellationId String?
+ cancellation TradeCancellation? @relation(fields:[cancellationId],references:[id],onDelete:Restrict)
  returnOfId String?
  returnOf StockMovement? @relation("SupplierReturns",fields:[returnOfId],references:[id],onDelete:Restrict)
  supplierReturns StockMovement[] @relation("SupplierReturns")
@@ -959,6 +961,7 @@ model StockMovement {
  @@index([materialId,movedDate,sequence])
  @@index([returnOfId])
  @@index([reductionId])
+ @@index([cancellationId])
 }
 model StockChange {
  id String @id @default(cuid())
@@ -1247,6 +1250,7 @@ model PartnerIdentityChange {
 }
 
 model TradeCancellation {
+ stockReturns StockMovement[]
   refundPlanId String? @unique
   refundPlan CashPlan? @relation("CancellationRefund",fields:[refundPlanId],references:[id],onDelete:Restrict)
   paymentBasis String?

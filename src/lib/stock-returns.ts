@@ -30,9 +30,9 @@ export async function saveSupplierReturn(tx:Prisma.TransactionClient,data:FormDa
 }
 
 /** Validate physical returns before a negative tax invoice can reduce a linked purchase. */
-export async function assertStockCreditMatch(tx:Prisma.TransactionClient,documentId:string,ids:string[],creditSupply:string,afterSupply:string,reductionId?:string){
+export async function assertStockCreditMatch(tx:Prisma.TransactionClient,documentId:string,ids:string[],creditSupply:string,afterSupply:string,reductionId?:string,cancellationId?:string){
  if(!ids.length)return false;
- const rows=await tx.stockMovement.findMany({where:{id:{in:ids},documentId,material:{companyId:COMPANY_ID},kind:{in:['RETURN','VALUE_CREDIT']},voidedAt:null,reductionId:reductionId??null,returnOf:{kind:'IN',voidedAt:null,documentId,material:{companyId:COMPANY_ID}}}});
+ const rows=await tx.stockMovement.findMany({where:{id:{in:ids},documentId,material:{companyId:COMPANY_ID},kind:{in:['RETURN','VALUE_CREDIT']},voidedAt:null,reductionId:reductionId??null,cancellationId:cancellationId??null,returnOf:{kind:'IN',voidedAt:null,documentId,material:{companyId:COMPANY_ID}}}});
  if(rows.length!==ids.length||rows.some(r=>!r.supplyAmount||r.supplyAmount.gte(0))||rows.reduce((v,r)=>v+BigInt(r.supplyAmount!.toFixed(0)),0n)!==BigInt(creditSupply))throw new InputError('선택한 공급처 반품과 감액 공급가액·원 입고·매입 원본을 대조하세요. 다른 감액에 사용한 반품은 중복 연결할 수 없습니다.');
  const linked=await tx.stockMovement.aggregate({where:{documentId,voidedAt:null},_sum:{supplyAmount:true}}),net=BigInt(linked._sum.supplyAmount?.toFixed(0)??'0');
  if(net<0n||net>BigInt(afterSupply))throw new InputError('반품 후 연결 품목 공급가액이 감액 후 청구 공급가액을 초과합니다. 반품·입고·계산서 원본을 확인하세요.');
@@ -43,11 +43,30 @@ export async function assertStockCreditMatch(tx:Prisma.TransactionClient,documen
 export async function writeStockCreditMatches(tx:Prisma.TransactionClient,ids:string[],reductionId:string|null,requestId:string,reason:string){
  if(!ids.length)return;
  await assertPeriodsOpen(tx,koreanToday());
- const rows=await tx.stockMovement.findMany({where:{id:{in:ids},kind:{in:['RETURN','VALUE_CREDIT']},voidedAt:null,material:{companyId:COMPANY_ID}}});
+ const rows=await tx.stockMovement.findMany({where:{id:{in:ids},kind:{in:['RETURN','VALUE_CREDIT']},voidedAt:null,cancellationId:null,material:{companyId:COMPANY_ID}}});
  if(rows.length!==ids.length)throw new InputError('반품 대조 원본이 변경되었습니다.');
  for(const row of rows){
-  const changed=await tx.stockMovement.updateMany({where:{id:row.id,voidedAt:null,reductionId:row.reductionId},data:{reductionId}});if(changed.count!==1)throw new InputError('반품 대조 상태가 변경되었습니다.');
+  const changed=await tx.stockMovement.updateMany({where:{id:row.id,voidedAt:null,reductionId:row.reductionId,cancellationId:null},data:{reductionId}});if(changed.count!==1)throw new InputError('반품 대조 상태가 변경되었습니다.');
   const previous={reductionId:row.reductionId},next={movementId:row.id,reductionId,effectiveDate:koreanToday()};
   await tx.stockChange.create({data:{materialId:row.materialId,requestId:`${requestId}:stock:${row.id}`,fingerprint:createHash('sha256').update(JSON.stringify({previous,next,reason})).digest('hex'),operation:reductionId?'RETURN_CREDIT_MATCH':'RETURN_CREDIT_UNMATCH',previous,next,reason}});
+ }
+}
+
+export async function assertStockCancellationMatch(tx:Prisma.TransactionClient,documentId:string,ids:string[],creditSupply:string,cancellationId?:string){
+ const verified=await assertStockCreditMatch(tx,documentId,ids,creditSupply,'0',undefined,cancellationId);if(!verified)return false;
+ if(!await tx.tradeDocument.findFirst({where:{id:documentId,companyId:COMPANY_ID,kind:'PURCHASE'},select:{id:true}}))throw new InputError('원 입고에 연결된 회사 매입을 선택하세요.');
+ const receipts=await tx.stockMovement.findMany({where:{documentId,material:{companyId:COMPANY_ID},kind:'IN',voidedAt:null},include:{supplierReturns:{where:{voidedAt:null,kind:'RETURN',documentId}}}});
+ if(!receipts.length||receipts.some(r=>r.supplierReturns.reduce((v,returned)=>v+stockQuantity(returned.quantity.toFixed(4)),0n)!==stockQuantity(r.quantity.toFixed(4))))throw new InputError('입고 연결 청구의 전액취소는 원 입고 수량이 모두 실제 공급처 반품된 경우에 처리합니다. 남은 수량과 반품 근거를 확인하세요.');
+ return true;
+}
+export async function writeStockCancellationMatches(tx:Prisma.TransactionClient,ids:string[],cancellationId:string|null,requestId:string,reason:string){
+ if(!ids.length)return;
+ await assertPeriodsOpen(tx,koreanToday());
+ const rows=await tx.stockMovement.findMany({where:{id:{in:ids},kind:{in:['RETURN','VALUE_CREDIT']},voidedAt:null,reductionId:null,material:{companyId:COMPANY_ID}}});
+ if(rows.length!==ids.length)throw new InputError('전액취소 반품 대조 원본이 변경되었습니다.');
+ for(const row of rows){
+  const changed=await tx.stockMovement.updateMany({where:{id:row.id,voidedAt:null,reductionId:null,cancellationId:row.cancellationId},data:{cancellationId}});if(changed.count!==1)throw new InputError('전액취소 반품 대조가 변경되었습니다.');
+  const previous={reductionId:null,cancellationId:row.cancellationId},next={movementId:row.id,reductionId:null,cancellationId,effectiveDate:koreanToday()};
+  await tx.stockChange.create({data:{materialId:row.materialId,requestId:`${requestId}:stock:${row.id}`,fingerprint:createHash('sha256').update(JSON.stringify({previous,next,reason})).digest('hex'),operation:cancellationId?'RETURN_CANCEL_MATCH':'RETURN_CANCEL_UNMATCH',previous,next,reason}});
  }
 }

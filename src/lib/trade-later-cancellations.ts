@@ -1,3 +1,4 @@
+import {assertStockCancellationMatch,writeStockCancellationMatches} from './stock-returns';
 import {createHash} from 'node:crypto';
 import type {Prisma,PrismaClient} from '@/generated/prisma/client';
 import {COMPANY_ID} from './constants';
@@ -25,7 +26,8 @@ export async function registerLaterCancellation(tx:Prisma.TransactionClient,sour
  if(BigInt(d.supplyAmount.toFixed(0))!==-BigInt(row.supply)||BigInt(d.taxAmount.toFixed(0))!==-BigInt(row.tax)||BigInt(d.grossAmount.toFixed(0))!==-BigInt(row.gross))throw new InputError('원본 공급가액·세액·합계 전액의 반대 금액이어야 합니다. 부분 감액은 별도 정산입니다.');
  const cells=Array.isArray(d.workbookSource?.cells)?d.workbookSource.cells:[],business=normalizeBusinessNumber(String(cells[row.kind==='SALE'?9:4]??d.reductions[0]?.businessNumber??d.partner.businessNumber??''));
  if(!business||business!==normalizeBusinessNumber(row.raw[row.kind==='SALE'?9:4]??''))throw new InputError('원본과 수정증빙 사업자번호가 다릅니다.');
- if(await tx.tradeReduction.count({where:{companyId:COMPANY_ID,voidedAt:null,taxApprovalNumber:row.approval}})||await tx.sourceCostReview.count({where:{companyId:COMPANY_ID,sourceType:'TRADE',sourceId:d.id,active:true}})||await tx.stockMovement.count({where:{documentId:d.id,voidedAt:null}})||await tx.vehicleExpense.count({where:{documentId:d.id}}))throw new InputError('부분 감액·자재·차량·공사 원가 배부 연결은 별도 기간 정산이 필요합니다.');
+ const stockVerified=await assertStockCancellationMatch(tx,d.id,source.stockReturnIds,row.supply);
+ if(await tx.tradeReduction.count({where:{companyId:COMPANY_ID,voidedAt:null,taxApprovalNumber:row.approval}})||await tx.sourceCostReview.count({where:{companyId:COMPANY_ID,sourceType:'TRADE',sourceId:d.id,active:true}})||!stockVerified&&await tx.stockMovement.count({where:{documentId:d.id,voidedAt:null}})||await tx.vehicleExpense.count({where:{documentId:d.id}}))throw new InputError('부분 감액·자재·차량·공사 원가 배부 연결은 별도 기간 정산이 필요합니다.');
  await assertCreditBalance(tx,d.id,new Date(row.date));
  if(await tx.tradeDocument.count({where:{companyId:COMPANY_ID,taxApprovalNumber:row.approval,voidedAt:null}})||await tx.tradeCancellation.count({where:{companyId:COMPANY_ID,voidedAt:null,OR:[{originalDocumentId:d.id},{originalApproval:row.approval},{taxApprovalNumber:row.approval}]}}))throw new InputError('이미 사용한 수정 승인번호 또는 취소 원본입니다.');
  // Amounts and the original issue date stay intact, including a closed original month.
@@ -33,6 +35,7 @@ export async function registerLaterCancellation(tx:Prisma.TransactionClient,sour
  if(changed.count!==1)throw new InputError('원본 청구가 변경되었습니다.');
  const file=await tx.tradeWorkbookFile.upsert({where:{companyId_checksum:{companyId:COMPANY_ID,checksum:source.checksum}},create:{companyId:COMPANY_ID,checksum:source.checksum,fileName:source.fileName,content:Buffer.from(source.content)},update:{},select:{id:true}});
  const c=await tx.tradeCancellation.create({data:{companyId:COMPANY_ID,originalDocumentId:d.id,originalApproval:d.taxApprovalNumber,taxApprovalNumber:row.approval,issuedDate:new Date(row.date),supplyAmount:row.supply,taxAmount:row.tax,grossAmount:row.gross,fileId:file.id,sheet:row.sheet,sourceRow:row.row,headers:source.headers,cells:row.raw,reason:source.reason,requestId:source.requestId,fingerprint:source.fingerprint,documentVersionAfter:d.version+1}});
+ if(stockVerified)await writeStockCancellationMatches(tx,source.stockReturnIds,c.id,source.requestId,source.reason);
  await tx.tradeCancellationChange.create({data:{cancellationId:c.id,requestId:source.requestId,fingerprint:source.fingerprint,operation:LATER_CANCELLATION,reason:source.reason}});
  await tx.tradeDocumentChange.create({data:{documentId:d.id,requestId:source.requestId,fingerprint:source.fingerprint,previous:{voided:false},next:{voided:true,cancellationId:c.id,operation:LATER_CANCELLATION,effectiveDate:row.date,originalPeriodPreserved:true},reason:source.reason}});
  return {id:d.id,cancellationId:c.id,replayed:false};
