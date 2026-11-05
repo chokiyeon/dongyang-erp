@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit --incremental false",
@@ -24,7 +24,7 @@
     "db:check-backup": "node scripts/check-backup.mjs",
     "start:office": "node --env-file=.env.office scripts/start-office.mjs",
     "office:prepare": "node --env-file=.env.office scripts/prepare-office.mjs",
-    "build:office": "node --env-file=.env.office node_modules/next/dist/bin/next build",
+    "build:office": "node --env-file=.env.office node_modules/next/dist/bin/next build --webpack",
     "office:backup": "node --env-file=.env.office scripts/database-transfer.mjs backup",
     "office:restore": "node --env-file=.env.office scripts/database-transfer.mjs restore",
     "prepare:ocr": "node scripts/prepare-ocr-assets.mjs",

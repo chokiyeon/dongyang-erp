@@ -13,6 +13,8 @@
 - [입고 반품·단가 감액](docs/STOCK-RETURNS-AND-CREDITS.md)
 - [자재 전량 반품 취소](docs/STOCK-FULL-CANCELLATIONS.md)
 - [회사 PC와 NAS 설치 안내](docs/OFFICE-PC-AND-NAS.md)
+- [시범운영 전 확인 범위](docs/PILOT-ACCEPTANCE.md)
+- [사무실 현금 시제·실사](docs/PETTY-CASH.md)
 
 실제 회사·계좌·급여 자료를 자동 생성하거나 실제 송금을 실행하지 않습니다. 과거 날짜의 진행 기록은 당시의 구현 상태이며 최신 범위는 위 재개 기록과 각 기능 문서를 참고하세요.
 

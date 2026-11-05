@@ -1,3 +1,4 @@
+import {pettyCashCounts} from './petty-cash';
 import {historicalTradePlan} from "./trade-credit-plan-history";
 import {tradeActiveAt,LATER_REDUCTION,restoreLaterAmounts} from "./trade-period";
 import {bankReconciliationMonth} from "./bank-reconciliation";
@@ -26,7 +27,9 @@ export async function loadMonthEndReview(db:PrismaClient|Prisma.TransactionClien
    tx.sourceCostReview.findMany({where:{companyId,sourceType:"TRADE",active:true,needsReview:false},select:{sourceId:true}}),
   ]);
   const trades=currentTrades.map(t=>t.reductions.length?{...restoreLaterAmounts(t,t.reductions.filter(r=>!r.voidedAt)),cashPlanId:historicalTradePlan(t.cashPlanId,t.reductions),settledAmount:t.links.reduce((v,l)=>v.plus(l.amount),t.settledAmount.minus(t.settledAmount))}:t);
+  const [pettyEntries,pettyCounts]=await Promise.all([tx.pettyCashEntry.count({where:{companyId,voidedAt:null,entryDate:{lte:end}}}),pettyCashCounts(tx,period,companyId)]);const pettyLast=pettyCounts[0];
   const checks:MonthEndCheck[]=[
+   {key:'pettyCash',title:'현금 시제 미대조·차이 확인',count:pettyEntries&&(!pettyLast||!pettyLast.current||pettyLast.difference!=='0')?1:0,description:'현금 장부가 있는 경우 실제 보관액과 대조합니다. 장부 변경 또는 차이가 있으면 재확인하며 차액을 임의 조정하지 않습니다.',href:`/petty-cash?period=${period}`},
    {key:"bankBalance",title:"통장 월말 잔액 대조 미완료",count:reconciliation.rows.filter(row=>!row.ready).length,description:"사용 중지 통장도 포함합니다. 월초 잔액과 은행 월말 잔액을 대조하고 원본 변경 여부를 확인하세요.",href:`/bank-reconciliation?period=${period}`},
    {key:"bank",title:"은행 거래 회계코드 미분류",count:bank,description:"회사 통장 간 이체를 제외한 해당 월 은행 거래입니다.",href:"/ledger/classify"},
    {key:"proof",title:"매입·매출 원본 미확인",count:trades.filter(t=>!t.proofConfirmed).length,description:"취소되지 않은 해당 월 증빙의 원본 확인이 필요합니다.",href:`/trades?from=${period}-01&to=${recurringDue(period,0)}`},

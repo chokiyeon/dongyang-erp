@@ -5,7 +5,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { COMPANY_ID } from "./constants";
 import { InputError, amount, choice, date, revision, text } from "./validation";
 
-import {CASH_CATEGORIES,DIRECTIONS,CERTAINTIES,cashSummary} from './cash-types';
+import {CASH_CATEGORIES,cashSummary} from './cash-types';
 export {CASH_CATEGORIES,DIRECTIONS,CERTAINTIES,cashSummary,won} from './cash-types';
 
 export async function createCashPlan(tx: Prisma.TransactionClient, data: FormData) {

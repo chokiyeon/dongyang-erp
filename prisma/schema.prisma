@@ -8,6 +8,7 @@ datasource db {
 }
 
 model Company {
+  pettyCashEntries PettyCashEntry[]
   vehicleCostAdjustments VehicleCostAdjustment[]
   tradeCostAdjustments TradeCostAdjustment[]
   laborImportFiles LaborImportFile[]
@@ -1468,4 +1469,27 @@ model VehicleCostAdjustment {
  @@index([companyId,effectiveDate])
  @@index([expenseId,effectiveDate])
  @@index([documentId,effectiveDate])
+}
+
+model PettyCashEntry {
+ id String @id @default(cuid())
+ companyId String
+ company Company @relation(fields:[companyId],references:[id],onDelete:Restrict)
+ entryDate DateTime @db.Date
+ kind String
+ amount Decimal @db.Decimal(20,0)
+ title String
+ projectCode String?
+ projectName String?
+ projectId String?
+ evidence String
+ reason String
+ requestId String @unique
+ fingerprint String
+ voidedAt DateTime?
+ voidReason String?
+ voidRequestId String? @unique
+ voidFingerprint String?
+ createdAt DateTime @default(now())
+ @@index([companyId,entryDate,createdAt,id])
 }
