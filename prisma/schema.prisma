@@ -8,6 +8,7 @@ datasource db {
 }
 
 model Company {
+  tradeCostAdjustments TradeCostAdjustment[]
   laborImportFiles LaborImportFile[]
   tradeReductions TradeReduction[]
   tradeCancellations TradeCancellation[]
@@ -73,6 +74,7 @@ enum ProjectStatus {
 }
 
 model Project {
+  tradeCostAdjustmentEntries TradeCostAdjustmentEntry[]
   laborImports LaborImportRow[]
   cashPlans CashPlan[]
   stockLocations StockLocation[]
@@ -415,6 +417,7 @@ enum InputVatReview {
   NONDEDUCTIBLE
 }
 model TradeDocument {
+  costAdjustments TradeCostAdjustment[]
   reductions TradeReduction[]
   cancellations TradeCancellation[]
   workbookSource TradeWorkbookSource?
@@ -1029,6 +1032,7 @@ model FinanceChange {
 }
 
 model SourceCostReview {
+ periodAdjustments TradeCostAdjustment[]
  needsReview Boolean @default(false)
  id String @id @default(cuid())
  companyId String
@@ -1251,6 +1255,7 @@ model PartnerIdentityChange {
 }
 
 model TradeCancellation {
+ costAdjustment TradeCostAdjustment?
  unpaidPlanBasis String?
  stockReturns StockMovement[]
   refundPlanId String? @unique
@@ -1297,6 +1302,7 @@ model TradeCancellationChange {
 }
 
 model TradeReduction {
+ costAdjustment TradeCostAdjustment?
  cashPlanTracked Boolean @default(false)
  cashPlanBeforeId String?
  cashPlanBefore CashPlan? @relation("ReductionPlanBefore",fields:[cashPlanBeforeId],references:[id],onDelete:Restrict)
@@ -1394,4 +1400,42 @@ model LaborImportWork {
  workId String @unique
  work WorkRecord @relation(fields:[workId],references:[id],onDelete:Restrict)
  workVersion Int
+}
+
+model TradeCostAdjustment {
+ id String @id @default(cuid())
+ companyId String
+ company Company @relation(fields:[companyId],references:[id],onDelete:Restrict)
+ reviewId String
+ review SourceCostReview @relation(fields:[reviewId],references:[id],onDelete:Restrict)
+ documentId String
+ document TradeDocument @relation(fields:[documentId],references:[id],onDelete:Restrict)
+ reductionId String? @unique
+ reduction TradeReduction? @relation(fields:[reductionId],references:[id],onDelete:Restrict)
+ cancellationId String? @unique
+ cancellation TradeCancellation? @relation(fields:[cancellationId],references:[id],onDelete:Restrict)
+ effectiveDate DateTime @db.Date
+ beforeTotal Decimal @db.Decimal(20,0)
+ afterTotal Decimal @db.Decimal(20,0)
+ beforeCommon Decimal @db.Decimal(20,0)
+ afterCommon Decimal @db.Decimal(20,0)
+ beforeEntries Json
+ afterEntries Json
+ basisBefore String
+ reason String
+ createdAt DateTime @default(now())
+ entries TradeCostAdjustmentEntry[]
+ @@index([companyId,effectiveDate])
+ @@index([reviewId,effectiveDate])
+ @@index([documentId,effectiveDate])
+}
+model TradeCostAdjustmentEntry {
+ id String @id @default(cuid())
+ adjustmentId String
+ adjustment TradeCostAdjustment @relation(fields:[adjustmentId],references:[id],onDelete:Restrict)
+ projectId String
+ project Project @relation(fields:[projectId],references:[id],onDelete:Restrict)
+ amount Decimal @db.Decimal(20,0)
+ @@unique([adjustmentId,projectId])
+ @@index([projectId,adjustmentId])
 }

@@ -1,3 +1,4 @@
+import {effectivePeriodProjectCosts} from "./trade-cost-period";
 import {enrichPurchaseOutstanding} from "./purchase-costs";
 import {assertPeriodsOpen} from "./period-guard";
 import { createHash } from "node:crypto";
@@ -12,7 +13,7 @@ export async function profitSources(tx: PrismaClient|Prisma.TransactionClient, p
     tx.tradeDocument.findMany({where:{companyId:COMPANY_ID,projectId,kind:"PURCHASE",voidedAt:null,issuedDate:{lte:new Date(koreanToday())}},orderBy:{id:"asc"}}),
     tx.projectCostEntry.findMany({where:{projectId,project:{companyId:COMPANY_ID},voidedAt:null,incurredDate:{lte:new Date(koreanToday())}},orderBy:{id:"asc"}}),
   ]);
-  return {documents,entries:await enrichPurchaseOutstanding(tx,entries)};
+  return {documents,entries:await effectivePeriodProjectCosts(tx,projectId,await enrichPurchaseOutstanding(tx,entries))};
 }
 export async function saveProjectProfit(tx: Prisma.TransactionClient,data:FormData,operation:"estimate"|"cost"|"void") {
   const projectId=text(data,"projectId","현장",true,50); const version=revision(data);const requestId=text(data,"requestId","요청",true,50);const reason=text(data,"reason","처리 사유",true,300);

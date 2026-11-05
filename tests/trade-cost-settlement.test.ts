@@ -42,7 +42,7 @@ test('재배부 합계·명시 확인·버전·다른 달·마감 검증은 청�
  const missing=new FormData();for(const[k,v]of p.input.entries())if(k!=='costAllocationConfirmed')missing.append(k,v);await assert.rejects(prepareTradeReduction(missing,'감액.xlsx',p.bytes),/현장별·본사 원가/);
  const proposal=JSON.parse(String(p.input.get('costAllocation')));proposal.commonAmount='99';p.input.set('costAllocation',JSON.stringify(proposal));await assert.rejects(registerTradeReduction(tx,await prepareTradeReduction(p.input,'감액.xlsx',p.bytes)),/순원가/);
  proposal.commonAmount='100';proposal.version++;p.input.set('costAllocation',JSON.stringify(proposal));await assert.rejects(registerTradeReduction(tx,await prepareTradeReduction(p.input,'감액.xlsx',p.bytes)),/현재 배부 기준/);
- const later=await prepare(tx,x,'DEDUCTIBLE',false,'2026-11-01');await assert.rejects(registerTradeReduction(tx,later.source,'LATER'),/별도 기간 원가 정산/);
+ const later=await prepare(tx,x,'DEDUCTIBLE',false,'2026-11-01');await assert.rejects(registerTradeReduction(tx,later.source,'LATER'),/현재 기간 원가 배부/);
  await tx.accountingPeriodLock.upsert({where:{companyId_period:{companyId:COMPANY_ID,period:'2026-10'}},create:{companyId:COMPANY_ID,period:'2026-10',packageId:'합성',digest:'합성',locked:true},update:{locked:true}});await assert.rejects(registerTradeReduction(tx,p.source),/마감/);assert.equal((await x.current()).grossAmount.toFixed(0),'1100');assert.equal((await x.allocation())!.totalAmount,old.totalAmount);assert.equal(await tx.tradeReduction.count({where:{originalDocumentId:x.document}}),0);
 }));
 test('다른 회사 배부 현장을 거부하면 감액·증빙·원가 변경을 모두 롤백한다',async()=>{

@@ -1,0 +1,73 @@
+import {createHash} from 'node:crypto';
+import type {Prisma,PrismaClient,ProjectCostEntry} from '@/generated/prisma/client';
+import {COMPANY_ID} from './constants';
+import {InputError} from './validation';
+import {purchaseCostDigest,purchaseOutstandingShares} from './purchase-costs';
+import {LATER_REDUCTION} from './trade-period';
+import {assertPeriodsOpen} from './period-guard';
+import {koreanToday} from './forecast';
+export type CostDistribution={commonAmount:string;entries:{projectId:string;amount:string}[]};
+export const activePeriodCosts:Prisma.TradeCostAdjustmentWhereInput={companyId:COMPANY_ID,OR:[{reduction:{voidedAt:null}},{cancellation:{voidedAt:null}}]};
+const hash=(v:unknown)=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
+function allocations(v:unknown){if(!Array.isArray(v)||v.length>40)throw new InputError('기간 원가 배부 내역을 확인하세요.');const out=v.map(e=>{const r=e as Record<string,unknown>;if(!r||typeof r.projectId!=='string'||!r.projectId||typeof r.amount!=='string'||!/^[1-9]\d{0,19}$/.test(r.amount))throw new InputError('기간 원가의 현장·금액을 확인하세요.');return{projectId:r.projectId,amount:r.amount};}).sort((a,b)=>a.projectId.localeCompare(b.projectId));if(new Set(out.map(e=>e.projectId)).size!==out.length)throw new InputError('기간 원가 현장이 중복되었습니다.');return out;}
+const sum=(s:CostDistribution)=>s.entries.reduce((v,e)=>v+BigInt(e.amount),BigInt(s.commonAmount));
+const cost=(s:{toFixed(n:number):string},t:{toFixed(n:number):string},vat:string)=>BigInt(s.toFixed(0))+(vat==='NONDEDUCTIBLE'?BigInt(t.toFixed(0)):0n);
+function deltas(before:CostDistribution,after:CostDistribution){const values=new Map(before.entries.map(e=>[e.projectId,-BigInt(e.amount)]));for(const e of after.entries)values.set(e.projectId,(values.get(e.projectId)??0n)+BigInt(e.amount));return [...values].filter(([,v])=>v!==0n).sort(([a],[b])=>a.localeCompare(b)).map(([projectId,amount])=>({projectId,amount:amount.toString()}));}
+export async function periodCostState(db:PrismaClient|Prisma.TransactionClient,reviewId:string){
+ const review=await db.sourceCostReview.findFirst({where:{id:reviewId,companyId:COMPANY_ID,sourceType:'TRADE'},include:{entries:{where:{voidedAt:null},include:{project:{select:{companyId:true}}}}}});
+ if(!review?.active||review.needsReview)throw new InputError('원 작성월의 원가 배부가 미확인 또는 취소되었습니다.');
+ const doc=await db.tradeDocument.findFirst({where:{id:review.sourceId,companyId:COMPANY_ID,kind:'PURCHASE',projectId:null},include:{reductions:{where:{voidedAt:null,changes:{some:{operation:LATER_REDUCTION}}},select:{id:true,supplyAmount:true,taxAmount:true}}}});if(!doc||doc.voidedAt||!doc.proofConfirmed||!doc.profitCategory||doc.taxAmount.gt(0)&&doc.inputVatReview==='PENDING'||review.incurredDate.getTime()!==doc.issuedDate.getTime())throw new InputError('기간 정산의 원 청구·원가 발생일·부가세 검토를 확인하세요.');
+ const originalSupply=BigInt(doc.supplyAmount.toFixed(0))-doc.reductions.reduce((v,r)=>v+BigInt(r.supplyAmount.toFixed(0)),0n),originalTax=BigInt(doc.taxAmount.toFixed(0))-doc.reductions.reduce((v,r)=>v+BigInt(r.taxAmount.toFixed(0)),0n);
+ const baseBasis=purchaseCostDigest({...doc,supplyAmount:{toFixed:()=>originalSupply.toString()},taxAmount:{toFixed:()=>originalTax.toString()}});
+ if(review.basis!==baseBasis||review.totalAmount.toFixed(0)!==(originalSupply+(doc.inputVatReview==='NONDEDUCTIBLE'?originalTax:0n)).toString()||review.entries.some(e=>!e.sourceConfirmed||e.project.companyId!==COMPANY_ID))throw new InputError('원 작성월 배부 기준과 현재 수정증빙의 원 금액을 먼저 대조하세요.');
+ let state:CostDistribution={commonAmount:review.commonAmount.toFixed(0),entries:allocations(review.entries.map(e=>({projectId:e.projectId,amount:e.amount.toFixed(0)})))};
+ if(sum(state).toString()!==review.totalAmount.toFixed(0))throw new InputError('원 작성월의 배부 합계를 확인하세요.');
+ const adjustments=await db.tradeCostAdjustment.findMany({where:{...activePeriodCosts,reviewId:review.id},include:{entries:{include:{project:{select:{companyId:true}}}},reduction:{include:{changes:{where:{operation:LATER_REDUCTION},select:{id:true}}}}},orderBy:[{effectiveDate:'asc'},{beforeTotal:'desc'},{id:'asc'}]});
+ const ids:string[]=[];const basis=()=>hash({reviewId:review.id,version:review.version,base:review.basis,ids,...state});
+ for(const a of adjustments){
+  const r=a.reduction;if(a.documentId!==doc.id||!r||r.companyId!==COMPANY_ID||r.originalDocumentId!==doc.id||!r.changes.length||r.issuedDate.getTime()!==a.effectiveDate.getTime()||doc.issuedDate.toISOString().slice(0,7)>=a.effectiveDate.toISOString().slice(0,7)||a.basisBefore!==basis()||a.beforeTotal.toFixed(0)!==sum(state).toString()||a.beforeCommon.toFixed(0)!==state.commonAmount||JSON.stringify(allocations(a.beforeEntries))!==JSON.stringify(state.entries)||cost(r.beforeSupply,r.beforeTax,doc.inputVatReview).toString()!==a.beforeTotal.toFixed(0))throw new InputError('기간 원가 조정의 이전 금액·수정증빙·순서를 확인하세요.');
+  const next={commonAmount:a.afterCommon.toFixed(0),entries:allocations(a.afterEntries)},expected=deltas(state,next);
+  if(sum(next).toString()!==a.afterTotal.toFixed(0)||a.afterTotal.toFixed(0)!==cost(r.afterSupply,r.afterTax,doc.inputVatReview).toString()||a.entries.some(e=>e.project.companyId!==COMPANY_ID)||JSON.stringify(a.entries.map(e=>({projectId:e.projectId,amount:e.amount.toFixed(0)})).sort((x,y)=>x.projectId.localeCompare(y.projectId)))!==JSON.stringify(expected))throw new InputError('기간 원가 조정의 현장별 차액 합계를 확인하세요.');
+  state=next;ids.push(a.id);
+ }
+ if(JSON.stringify(adjustments.map(a=>a.reductionId).sort())!==JSON.stringify(doc.reductions.map(r=>r.id).sort())||sum(state)!==cost(doc.supplyAmount,doc.taxAmount,doc.inputVatReview))throw new InputError('수정증빙과 기간 원가 조정의 현재 순액이 다릅니다.');
+ return{review,document:doc,distribution:state,totalAmount:sum(state).toString(),basis:basis(),adjustments};
+}
+export type PreparedPeriodCost={effectiveDate:string;state:Awaited<ReturnType<typeof periodCostState>>};
+export async function preparePeriodCost(tx:Prisma.TransactionClient,id:string,proposal:{reviewId:string;version:number;basis:string}&CostDistribution,effectiveDate:string,delta:{supply:string;tax:string}){
+ const state=await periodCostState(tx,proposal.reviewId);if(state.document.id!==id||state.review.version!==proposal.version||state.basis!==proposal.basis)throw new InputError('현재 기간 원가 배부가 변경되었습니다. 다시 선택하세요.');
+ await assertPeriodsOpen(tx,effectiveDate);
+ const expected=cost(state.document.supplyAmount,state.document.taxAmount,state.document.inputVatReview)+BigInt(delta.supply)+(state.document.inputVatReview==='NONDEDUCTIBLE'?BigInt(delta.tax):0n);
+ if(expected<=0n||sum(proposal)!==expected)throw new InputError('감액 후 기간 원가와 현장/본사 배부 합계를 확인하세요.');
+ if(await tx.project.count({where:{companyId:COMPANY_ID,id:{in:proposal.entries.map(e=>e.projectId)}}})!==proposal.entries.length)throw new InputError('회사 현장을 중복 없이 선택하세요.');
+ return{...proposal,period:{effectiveDate,state}};
+}
+export async function applyPeriodCost(tx:Prisma.TransactionClient,id:string,proposal:CostDistribution&{period:PreparedPeriodCost},reductionId:string,reason:string){
+ const {state,effectiveDate}=proposal.period,r=await tx.tradeReduction.findFirst({where:{id:reductionId,companyId:COMPANY_ID,originalDocumentId:id,voidedAt:null}}),d=await tx.tradeDocument.findFirstOrThrow({where:{id,companyId:COMPANY_ID}});
+ if(!r||r.issuedDate.toISOString().slice(0,10)!==effectiveDate||r.beforeSupply.toFixed(0)!==state.document.supplyAmount.toFixed(0)||r.beforeTax.toFixed(0)!==state.document.taxAmount.toFixed(0)||!r.afterSupply.equals(d.supplyAmount)||!r.afterTax.equals(d.taxAmount))throw new InputError('기간 원가와 감액 원본이 변경되었습니다.');
+ const entries=deltas(state.distribution,proposal),a=await tx.tradeCostAdjustment.create({data:{companyId:COMPANY_ID,reviewId:state.review.id,documentId:id,reductionId:r.id,effectiveDate:new Date(effectiveDate),beforeTotal:state.totalAmount,afterTotal:sum(proposal).toString(),beforeCommon:state.distribution.commonAmount,afterCommon:proposal.commonAmount,beforeEntries:state.distribution.entries,afterEntries:proposal.entries,basisBefore:state.basis,reason,entries:{create:entries}}});
+ await invalidatePeriodProjects(tx,[...state.distribution.entries,...proposal.entries].map(e=>e.projectId));return{reviewId:state.review.id,adjustmentId:a.id,kind:'PERIOD' as const};
+}
+export async function invalidatePeriodProjects(tx:Prisma.TransactionClient,ids:string[]){await tx.project.updateMany({where:{companyId:COMPANY_ID,id:{in:[...new Set(ids)]}},data:{profitVersion:{increment:1},profitReviewedAt:null,profitBasis:null}});}
+export async function periodCostRestore(db:PrismaClient|Prisma.TransactionClient,record:{id:string;requestId:string;originalDocumentId:string}){
+ const a=await db.tradeCostAdjustment.findFirst({where:{companyId:COMPANY_ID,reductionId:record.id,documentId:record.originalDocumentId},include:{review:true,reduction:{select:{voidedAt:true}}}});if(!a||a.reduction?.voidedAt)return null;
+ const state=await periodCostState(db,a.reviewId);
+ const before={commonAmount:a.beforeCommon.toFixed(0),entries:allocations(a.beforeEntries)},projects=await db.project.findMany({where:{companyId:COMPANY_ID,id:{in:[...before.entries,...state.distribution.entries].map(e=>e.projectId)}},select:{id:true,code:true,name:true}}),label=(id:string)=>{const p=projects.find(p=>p.id===id);if(!p)throw new InputError('기간 원가의 회사 현장을 확인하세요.');return`${p.code} ${p.name}`;};
+ return{blocked:state.adjustments.at(-1)?.id!==a.id,latestReductionId:state.adjustments.at(-1)?.reductionId,proposal:{reviewId:a.reviewId,version:state.review.version,basis:state.basis,...before,periodUndo:{adjustmentId:a.id,effectiveDate:a.effectiveDate.toISOString().slice(0,10)}},totalAmount:a.beforeTotal.toFixed(0),incurredDate:state.review.incurredDate.toISOString(),entries:before.entries.map(e=>({...e,label:label(e.projectId)})),currentActive:true,currentTotal:state.totalAmount,currentCommon:state.distribution.commonAmount,currentEntries:state.distribution.entries.map(e=>({...e,label:label(e.projectId)}))};
+}
+export async function effectivePeriodProjectCosts(db:PrismaClient|Prisma.TransactionClient,projectId:string,entries:(ProjectCostEntry&{unpaidPurchase?:bigint})[]){
+ const affected=await db.tradeCostAdjustment.findMany({where:{...activePeriodCosts,effectiveDate:{lte:new Date(koreanToday())},entries:{some:{projectId}}},select:{reviewId:true}}),ids=[...new Set([...affected.map(a=>a.reviewId),...entries.map(e=>e.sourceReviewId).filter((id):id is string=>Boolean(id))])];let result=[...entries];
+ for(const reviewId of ids){if(!await db.tradeCostAdjustment.count({where:{...activePeriodCosts,reviewId}}))continue;
+  const old=result.filter(e=>e.sourceReviewId===reviewId);try{const s=await periodCostState(db,reviewId),part=s.distribution.entries.find(e=>e.projectId===projectId);result=result.filter(e=>e.sourceReviewId!==reviewId);if(!part)continue;
+   const shares=purchaseOutstandingShares(BigInt(s.document.grossAmount.toFixed(0))-BigInt(s.document.settledAmount.toFixed(0)),BigInt(s.distribution.commonAmount),s.distribution.entries.map(e=>({projectId:e.projectId,amount:BigInt(e.amount)}))),template=old[0];
+   result.push({sourceReviewId:reviewId,sourceConfirmed:true,id:template?.id??`PERIOD-${reviewId}-${projectId}`,projectId,reference:template?.reference??`SRC-${reviewId}`,title:template?.title??`매입 ${s.document.reference} 기간 원가`,category:s.document.profitCategory!,incurredDate:s.review.incurredDate,amount:s.document.grossAmount.mul(0).plus(part.amount),voidedAt:null,voidReason:null,createdAt:template?.createdAt??s.review.incurredDate,updatedAt:template?.updatedAt??s.review.updatedAt,unpaidPurchase:shares.get(projectId)??0n});
+  }catch(e){if(!(e instanceof InputError))throw e;if(old.length)result=result.map(e=>e.sourceReviewId===reviewId?{...e,sourceConfirmed:false}:e);else{const r=await db.sourceCostReview.findFirstOrThrow({where:{id:reviewId,companyId:COMPANY_ID}});result.push({sourceReviewId:reviewId,sourceConfirmed:false,id:`PERIOD-${reviewId}-${projectId}`,projectId,reference:`SRC-${reviewId}`,title:'기간 원가 재검토 필요',category:'OTHER',incurredDate:r.incurredDate,amount:r.totalAmount.mul(0),voidedAt:null,voidReason:null,createdAt:r.incurredDate,updatedAt:r.updatedAt,unpaidPurchase:0n});}}
+ }
+ return result;
+}
+export async function periodCostDelivery(db:PrismaClient|Prisma.TransactionClient,period:string){
+ const {paymentMonth,recurringDue}=await import('./payment-terms');paymentMonth(period);
+ const rows=await db.tradeCostAdjustment.findMany({where:{...activePeriodCosts,effectiveDate:{gte:new Date(`${period}-01`),lte:new Date(recurringDue(period,0))}},include:{document:{select:{reference:true}},reduction:{select:{taxApprovalNumber:true}},entries:{include:{project:{select:{companyId:true,code:true,name:true}}},orderBy:{projectId:'asc'}}},orderBy:[{effectiveDate:'asc'},{id:'asc'}]});
+ if(!rows.length)return[];
+ return[{title:'다른 달 공사 원가 조정',headers:['조정 식별자','원 청구','수정 승인번호','반영일','원 배부 식별자','조정 전 총원가','조정 후 총원가','총원가 차액','본사 공통 차액','현장별 원가 차액','조정 전 배부','조정 후 배부','사유','반영 기준'],rows:rows.map(a=>[a.id,a.document.reference,a.reduction?.taxApprovalNumber??'',a.effectiveDate.toISOString().slice(0,10),a.reviewId,a.beforeTotal.toFixed(0),a.afterTotal.toFixed(0),a.afterTotal.minus(a.beforeTotal).toFixed(0),a.afterCommon.minus(a.beforeCommon).toFixed(0),a.entries.map(e=>{if(e.project.companyId!==COMPANY_ID)throw new InputError('기간 조정의 회사 현장을 확인하세요.');return`${e.project.code} ${e.project.name}: ${e.amount.toFixed(0)}원`;}).join(' / '),JSON.stringify(a.beforeEntries),JSON.stringify(a.afterEntries),a.reason,'수정 작성월 원가 차액 · 원 작성월 배부 보존 · 계산서 금액에 중복 합산 금지'])}];
+}
