@@ -9,7 +9,7 @@ const MAX_AGE = 60 * 60 * 8;
 function config() {
   const password = process.env.ERP_ADMIN_PASSWORD;
   const secret = process.env.ERP_SESSION_SECRET;
-  if (!password || password.length < 12 || !secret || secret.length < 32) return null;
+  if (!password || password.length < 8 || !secret || secret.length < 32) return null;
   return { password, secret };
 }
 

@@ -6,3 +6,8 @@ test("회사 PC 모드는 사내 주소·로컬 DB를 허용하되 공인/전체
  const valid={ERP_OFFICE_MODE:"true",ERP_OFFICE_BIND:"192.168.0.50",PORT:"3000",DATABASE_URL:"postgresql://erp:test-only-private-db-password@127.0.0.1/erp",ERP_ADMIN_PASSWORD:"test-only-private-admin",ERP_SESSION_SECRET:"test-only-session-secret-more-than-32",ERP_COOKIE_SECURE:"false"};assert.deepEqual(validateOfficeServer(valid),[]);
  assert.ok(validateOfficeServer({...valid,ERP_OFFICE_BIND:"0.0.0.0"}).length);assert.ok(validateOfficeServer({...valid,DATABASE_URL:"postgresql://erp:test-only-secret@8.8.8.8/erp"}).length);assert.ok(validateOfficeServer({...valid,ERP_ADMIN_PASSWORD:"REPLACE_WITH_PRIVATE_PASSWORD"}).length);assert.ok(!validateOfficeServer({...valid,DATABASE_URL:"not a URL"}).join(" ").includes("test-only-private-db-password"));
 });
+
+test('사내 관리자 비밀번호는 8자부터 허용하며 세션 키와 예시값 검사는 유지한다',()=>{
+ const base={ERP_OFFICE_MODE:'true',ERP_OFFICE_BIND:'127.0.0.1',PORT:'3000',DATABASE_URL:'postgresql://erp:synthetic-db-secret@127.0.0.1/erp',ERP_SESSION_SECRET:'synthetic-session-key-longer-than-32-characters',ERP_COOKIE_SECURE:'false'};
+ assert.deepEqual(validateOfficeServer({...base,ERP_ADMIN_PASSWORD:'Abc!2468'}),[]);assert.ok(validateOfficeServer({...base,ERP_ADMIN_PASSWORD:'Ab!2468'}).some(e=>e.includes('8자')));assert.ok(validateOfficeServer({...base,ERP_ADMIN_PASSWORD:'12345678'}).length);assert.ok(validateOfficeServer({...base,ERP_ADMIN_PASSWORD:'Abc!2468',ERP_SESSION_SECRET:'short'}).length);
+});

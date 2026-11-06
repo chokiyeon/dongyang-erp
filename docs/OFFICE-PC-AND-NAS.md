@@ -46,3 +46,5 @@ PostgreSQL 설치 폴더의 도구가 PATH에 없다면 `.env.office`의 `ERP_PG
 `--env-file= is not allowed in NODE_OPTIONS`가 나오면 DB를 다시 준비하거나 초기화하지 않는다. 회사 빌드는 `scripts/build-office.mjs`가 process.loadEnvFile로 설정을 읽은 뒤 별도 Node 프로세스로 Next 빌드를 실행한다. 자식 실행 인자에 --env-file을 넘기지 않아 빌드 작업자에 해당 옵션이 전파되지 않는다. 로그에 DB 비밀번호나 설정 내용을 출력하지 않는다.
 
 Windows Webpack 운영 빌드는 postcss.config.mjs의 공식 @tailwindcss/postcss 플러그인으로 Tailwind 유틸리티를 생성한다. Turbopack에만 연결한 CSS 규칙을 사용하지 않는다. 로그인 입력칸의 실제 테두리·너비·높이와 버튼 배경을 운영 브라우저에서 검증한다.
+
+2026-11-06 사용자 요청으로 사내 관리자 비밀번호와 실제 로그인 최소 길이를 8자로 통일했다. 기본 예시값 거부·최대 길이·32자 이상의 별도 세션 키·로그인 시도 제한은 유지한다. 8자 경계 사내 설정 검사 및 합성 8자 암호의 실제 로그인/7자 오입력 거부를 확인했다. 인터넷 공개 배포 설정의 별도 기준은 변경하지 않았다.
