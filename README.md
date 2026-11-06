@@ -13,6 +13,8 @@
 - [입고 반품·단가 감액](docs/STOCK-RETURNS-AND-CREDITS.md)
 - [자재 전량 반품 취소](docs/STOCK-FULL-CANCELLATIONS.md)
 - [회사 PC와 NAS 설치 안내](docs/OFFICE-PC-AND-NAS.md)
+- [윈도우 앱 아이콘·경리 PC 연결](docs/WINDOWS-APP.md)
+- [사업자등록증 회사 정보](docs/COMPANY-REGISTRATION.md)
 - [시범운영 전 확인 범위](docs/PILOT-ACCEPTANCE.md)
 - [사무실 현금 시제·실사](docs/PETTY-CASH.md)
 

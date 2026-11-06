@@ -1,0 +1,15 @@
+ALTER TABLE "Company"
+ ADD COLUMN "businessNumber" TEXT,
+ ADD COLUMN "corporateNumber" TEXT,
+ ADD COLUMN "registrationUnitNumber" TEXT,
+ ADD COLUMN "taxpayerType" TEXT,
+ ADD COLUMN "businessAddress" TEXT,
+ ADD COLUMN "headOfficeAddress" TEXT,
+ ADD COLUMN "businessType" TEXT,
+ ADD COLUMN "businessItems" TEXT,
+ ADD COLUMN "taxOffice" TEXT,
+ ADD COLUMN "phone" TEXT,
+ ADD COLUMN "fax" TEXT,
+ ADD COLUMN "email" TEXT,
+ ADD COLUMN "businessStartDate" DATE,
+ ADD COLUMN "registrationDate" DATE;

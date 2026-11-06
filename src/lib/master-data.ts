@@ -1,3 +1,5 @@
+import {companyProfile} from './company-profile';
+import {createHash,randomUUID} from 'node:crypto';
 import {normalizeBusinessNumber} from "./business-number";
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 import { PAYMENT_TERMS, PAYMENT_METHODS, normalizePayeeAccount } from "./payment-terms";
@@ -64,15 +66,21 @@ export async function saveMaster(db: Store, kind: Kind, data: FormData): Promise
   if (count !== 1) throw new InputError("다른 화면에서 변경되었거나 존재하지 않는 자료입니다. 목록에서 다시 열어 주세요.");
 }
 
-export async function saveCompany(db: Store, data: FormData) {
+export async function saveCompany(db: Store, data: FormData):Promise<void> {
+  if(typeof (db as PrismaClient).$transaction==='function')return (db as PrismaClient).$transaction(tx=>saveCompany(tx,data));
+  const requestId=text(data,'requestId','회사 정보 요청',false,50)||randomUUID();if(!/^[a-f0-9-]{36}$/i.test(requestId))throw new InputError('회사 정보 화면을 다시 열어 주세요.');
+  const fingerprint=createHash('sha256').update(JSON.stringify([...data.entries()])).digest('hex');const replay=await db.financeChange.findUnique({where:{requestId}});if(replay){if(replay.companyId!==COMPANY_ID||replay.operation!=='COMPANY_PROFILE'||replay.fingerprint!==fingerprint)throw new InputError('다른 내용으로 사용한 회사 정보 요청입니다.');return;}
   const name = text(data, "name", "법인명", true);
-  const representatives = text(data, "representatives", "대표자", false, 300).split(/\r?\n/).map((v) => v.trim()).filter(Boolean);
-  if (representatives.length > 10) throw new InputError("대표자는 10명 이내로 등록해 주세요.");
   const current = await db.company.findUnique({ where: { id: COMPANY_ID } });
+  const representatives = data.has('representatives')?text(data, "representatives", "대표자", false, 300).split(/\r?\n/).map((v) => v.trim()).filter(Boolean):current?.representatives??[];
+  if (representatives.length > 10) throw new InputError("대표자는 10명 이내로 등록해 주세요.");
+  const profile=companyProfile(data,current),values={name,representatives,...profile};
   if (!current) {
-    await db.company.create({ data: { id: COMPANY_ID, name, representatives } });
+    await db.company.create({ data: { id: COMPANY_ID,...values } });
   } else {
-    const result = await db.company.updateMany({ where: { id: COMPANY_ID, version: revision(data) }, data: { name, representatives, version: { increment: 1 } } });
+    const result = await db.company.updateMany({ where: { id: COMPANY_ID, version: revision(data) }, data: { ...values, version: { increment: 1 } } });
     if (result.count !== 1) throw new InputError("회사 정보가 변경되었습니다. 화면을 새로 열어 주세요.");
   }
+  const saved=await db.company.findUniqueOrThrow({where:{id:COMPANY_ID}});
+  await db.financeChange.create({data:{companyId:COMPANY_ID,requestId,fingerprint,operation:'COMPANY_PROFILE',entityId:COMPANY_ID,previous:JSON.parse(JSON.stringify(current??{})),next:JSON.parse(JSON.stringify(saved)),reason:text(data,'reason','회사 정보 변경 사유',false,300)||(current?'회사 정보 수정':'회사 정보 등록')}});
 }

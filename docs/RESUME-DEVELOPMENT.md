@@ -1,5 +1,16 @@
 # 개발 재개 기록
 
+## 최신 · 2026-11-06 v0.2.0 윈도우 실행기·회사 사업자 정보·경리 PC 연결
+
+사용자 요청 3개: 매일 cmd/npm 대신 윈도우 앱 아이콘으로 연결, 사업자등록증 회사 정보 입력, 경리 PC에서도 접속. 사용자 확인 메인 IP 192.168.0.12. 회사 PC의 기존 소스는 8e108c3에 수동 CSS/8자 암호 패치를 적용한 상태이고 새 기능은 아직 그 PC에 적용되지 않았다.
+
+- 앱 실행기는 ERP-App-install.cmd → 현재 사용자 바탕화면 아이콘(실행/서버 종료)을 만든다. 서버 재사용·준비 확인·시작 잠금·다른 앱 포트 보호, 숨김 Node 서버·Edge/Chrome 앱 창·로그를 구현했다. 서버 종료는 저장한 PID/실행 경로/명령/포트를 검증하고 사용자 확인 후 해당 서버만 종료한다. 앱 창을 닫아도 서버는 유지한다. 단독 EXE가 아니다.
+- ERP-LAN-setup.cmd는 UAC 승인을 받아 실제 PC 소속 사내 IPv4와 포트만 설정하고 방화벽은 Node·LocalSubnet·Private/Domain 범위만 허용한다. 공용 프로필 자동 변경/라우터 개방 없음. client 폴더는 경리 PC용 Edge/Chrome 연결 아이콘만 만들며 DB/Node/비밀번호 설정을 복사하지 않는다.
+- 회사 정보는 사업자/법인/종사업장 번호, 개업·발급일, 사업자 구분, 사업장/본점 주소, 업태/종목, 세무서·연락처를 추가했다. 입력 형식 검증·대표자/기존 필드 생략 보존·낡은 버전/요청 재시도·변경 이력 포함. 58번째 추가 마이그레이션 적용, 기존 DB 초기화 없음.
+- 전체 단위/DB 251개(/tmp/desktop-company-full.log), 집중 회귀 11개, 이후 실행기 추가 5개(/tmp/desktop-final-focused.log), 타입/lint/운영 빌드 및 회사정보/기초정보/로그인/디자인 화면 4개(/tmp/desktop-company-browser.log), 58개 migration 격리 백업복구 통과. Windows PowerShell/COM·실제 바로가기·CIM 종료 검증·방화벽/UAC·경리 PC 실제 접속은 회사 PC 확인이 남는다. Linux에서 이를 확인했다고 표시하지 않는다.
+- 새 배포 소스를 현재 프로그램 폴더에 복사해 업데이트하되 .env.office/ERP-login.txt/DB/NAS/backups 보존. ERP-install.cmd 한 번 → ERP-App-install.cmd → 필요 시 ERP-LAN-setup.cmd. Windows cmd는 ASCII/CRLF, 한국어 PowerShell은 UTF-8 BOM으로 보관. 기존 설치 파일 구문 오류 재발 방지. 자세한 순서는 처음읽기.txt와 WINDOWS-APP.md/COMPANY-REGISTRATION.md.
+
+
 ## 최신 진행 · 2026-11-05 현금 시제
 
 사용자는 드문 상계를 후순위로 두고 자주 쓰는 경리 기능을 완성한 뒤 회사 자료 운영검증만 남을 때 알림/다운로드를 요청했다. 공무 제외. 44174a5 이후 사무실 현금 시제·원본 취소·월 이월·실제 현금 실사/차액·장부 변경 재대조·월말 점검·회계 전달을 구현 중이다. 57번째 추가 migration 적용, 초기화 없음. 현금 5개 집중 및 월말 포함 집중 6개, 전체 243개(/tmp/petty-full1.log), lint/타입/최종 운영 빌드(/tmp/petty-final-build.log), 57개 migration 별도 DB 백업복구(/tmp/petty-backup1.log) 통과. 전체 화면 첫 실행 52개 통과/2개 검사 선택자 실패/2개 기존자료 보호 건너뜀. 급여·현금 선택자 수정 재실행 2개(/tmp/petty-browser-fixed.log)와 격리 예산안·마감 각 1개(/tmp/petty-isolated-*.log) 통과해 전체 56개 흐름 검증. 기본/회사 빌드는 검증된 Webpack 경로로 고정했다. 시작 안내 처음읽기.txt 추가. DB 검사와 화면 검사는 순차 실행. 핵심 경리 시범운영 준비 범위의 개발/합성 검증을 마쳤다. 남은 회사 단계는 실제 Windows 설치·NAS 백업/복구·회사 원본 짧은 기간 대조·직원/공사 매핑·세무/보험 확정 기준 확인이다. 자동 상계는 사용자 승인 후순위, 공무 제외. 기관 자동신고·은행 실송금·개인별 권한·어음 배서/부도 같은 확장 기능까지 완성됐다고 표시하지 않는다. PILOT-ACCEPTANCE.md/PETTY-CASH.md 참고.

@@ -35,6 +35,20 @@ model Company {
   tradeDocuments TradeDocument[]
   id        String   @id @default(cuid())
   name      String
+  businessNumber String?
+  corporateNumber String?
+  registrationUnitNumber String?
+  taxpayerType String?
+  businessStartDate DateTime? @db.Date
+  registrationDate DateTime? @db.Date
+  businessAddress String?
+  headOfficeAddress String?
+  businessType String?
+  businessItems String?
+  taxOffice String?
+  phone String?
+  fax String?
+  email String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   version Int @default(0)

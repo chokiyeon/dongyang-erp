@@ -58,3 +58,5 @@ next-env.d.ts
 
 # Local office administrator credentials
 /ERP-login.txt
+
+/logs/

@@ -374,7 +374,7 @@ test("로그인·회사·거래처·현장·계좌 등록과 수정", async ({ p
     await db.bankAccount.deleteMany({ where: { companyId: COMPANY_ID, OR: [{ label: accountName }, { label: { startsWith: `LB-${tag}-` } }] } });
     if (!companyExisted) {
       const current = await db.company.findUnique({ where: { id: COMPANY_ID }, include: { _count: { select: { projects: true, partners: true, accounts: true, cashPlans: true, cashBaselines: true, classificationBatches: true } } } });
-      if (current && current.name === `검증 법인 ${tag}` && !Object.values(current._count).some(Boolean)) await db.company.delete({ where: { id: COMPANY_ID } });
+      if (current && current.name === `검증 법인 ${tag}` && !Object.values(current._count).some(Boolean)) { await db.financeChange.deleteMany({where:{companyId:COMPANY_ID,operation:"COMPANY_PROFILE"}}); await db.company.delete({ where: { id: COMPANY_ID } }); }
     }
     await db.$disconnect();
   }
