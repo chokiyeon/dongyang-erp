@@ -44,3 +44,5 @@ PostgreSQL 설치 폴더의 도구가 PATH에 없다면 `.env.office`의 `ERP_PG
 ## Windows 빌드의 env-file 오류
 
 `--env-file= is not allowed in NODE_OPTIONS`가 나오면 DB를 다시 준비하거나 초기화하지 않는다. 회사 빌드는 `scripts/build-office.mjs`가 process.loadEnvFile로 설정을 읽은 뒤 별도 Node 프로세스로 Next 빌드를 실행한다. 자식 실행 인자에 --env-file을 넘기지 않아 빌드 작업자에 해당 옵션이 전파되지 않는다. 로그에 DB 비밀번호나 설정 내용을 출력하지 않는다.
+
+Windows Webpack 운영 빌드는 postcss.config.mjs의 공식 @tailwindcss/postcss 플러그인으로 Tailwind 유틸리티를 생성한다. Turbopack에만 연결한 CSS 규칙을 사용하지 않는다. 로그인 입력칸의 실제 테두리·너비·높이와 버튼 배경을 운영 브라우저에서 검증한다.

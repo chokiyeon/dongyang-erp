@@ -55,3 +55,6 @@ next-env.d.ts
 
 # Generated from pinned local OCR packages
 /public/ocr/
+
+# Local office administrator credentials
+/ERP-login.txt

@@ -306,3 +306,5 @@
 ## 2026-11-06 회사 설치 진행 중 빌드 수정
 
 사용자 Windows PC에서 Node24.22.2/npm11.19.1 설치, ERP 전용 erp 계정·dongyang_erp DB 생성, 암호 로컬 URI 인코딩 설정과 임의 관리자/세션 키 저장, npm ci 및 office:prepare의 57개 migration 성공을 사용자 결과로 확인했다. 비밀번호는 수집하지 않았다. build:office가 --env-file을 Next 작업자 NODE_OPTIONS에 전파하여 실패했다. process.loadEnvFile 후 별도 Node 실행 래퍼로 수정했으며 자식 인자·환경 값·비출력·실패 코드 보존/설정 파일 누락 검사를 통과했다. /tmp/office-worker-lint.log 확인. 사용자에게는 재다운로드 없이 같은 원리의 직접 빌드 명령을 안내한다. DB 재생성 불필요. npm audit 24개 경고는 별도 운영 전 보완 항목이며 --force 업데이트는 안내하지 않았다.
+
+2026-11-06 Windows 사용자 직접 빌드 우회 후 실제 빌드/서버 Ready와 로그인 페이지 접속 확인. 로그인 화면에 Tailwind utility가 없어 테두리/여백/버튼이 사라진 문제 발견: 기존 CSS 변환이 Turbopack 전용이고 회사 빌드는 Webpack이므로 공식 @tailwindcss/postcss 4.3.3 및 공통 postcss.config.mjs로 이전하고 전용 loader 설정 제거. /tmp/office-css-build.log, lint, 실제 로그인 스타일/원본장부 3개 브라우저 검사(/tmp/office-css-browser.log) 통과. ERP-login.txt는 Git 제외. 사용자는 기존 8e108c3 폴더이므로 재다운로드 대신 npm 설치와 PostCSS 설정 파일 생성, 기존 직접 빌드/시작 명령으로 안내한다. DB/암호 재생성 불필요.
