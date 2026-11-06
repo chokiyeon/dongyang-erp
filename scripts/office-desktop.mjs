@@ -6,6 +6,7 @@ import {validateOfficeServer} from './office-server-config.mjs';
 export function desktopAddress(env){const errors=validateOfficeServer(env);if(errors.length)throw Error(errors.join('\n'));if(env.ERP_COOKIE_SECURE!=='false')throw Error('회사 앱의 HTTP 접속에는 ERP_COOKIE_SECURE=false 설정을 확인하세요.');return `http://${env.ERP_OFFICE_BIND??'127.0.0.1'}:${env.PORT??'3000'}`;}
 export async function probeOffice(base,fetcher=fetch){
  let response;try{response=await fetcher(`${base}/api/health`,{redirect:'manual',signal:AbortSignal.timeout(2000),cache:'no-store'});}catch(error){return error?.cause?.code==='ECONNREFUSED'?'closed':'busy';}
+ if(response.status>=500&&response.headers.get('x-dongyang-erp')!=='1')return 'error';
  let data;try{data=await response.json();}catch{return 'other';}
  let identified=response.headers.get('x-dongyang-erp')==='1'&&data?.service==='dongyang-erp';
  // Older installed ERP versions have no identifying header. Check the login
@@ -27,6 +28,7 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
 export async function ensureOffice({root,env,probe=probeOffice,start=startServer,open=launchWindow,wait=delay,attempts=60}){
  const base=desktopAddress(env),url=`${base}/login`;const initial=await probe(base);
  if(initial==='ready'){await open(url);return{reused:true,url};}
+ if(initial==='error')throw Error('ERP 확인 주소에서 서버 내부 오류(500)가 발생했습니다. 다른 프로그램의 포트 사용으로 확인된 것은 아닙니다. logs/office-server.log를 확인하세요.');
  if(initial==='other')throw Error('설정한 포트에서 다른 프로그램이 실행 중입니다. 기존 프로그램을 종료하지 않았습니다. 포트 설정을 확인하세요.');
  if(initial==='unavailable')throw Error('ERP는 실행 중이지만 DB 또는 로그인 설정 확인이 필요합니다. ERP 점검을 실행하세요.');
  if(!existsSync(join(root,'.next/BUILD_ID'))||!existsSync(join(root,'node_modules/next/dist/bin/next')))throw Error('ERP 설치 또는 빌드를 먼저 완료하세요.');
@@ -35,7 +37,7 @@ export async function ensureOffice({root,env,probe=probeOffice,start=startServer
  owner=claim();if(!owner){try{const prior=readFileSync(lock,'utf8'),pid=JSON.parse(prior).pid;if(!Number.isSafeInteger(pid)||pid<=0)throw Error('bad lock');try{process.kill(pid,0);}catch(e){if(e.code==='ESRCH'&&readFileSync(lock,'utf8')===prior){unlinkSync(lock);owner=claim();}}}catch{/* An active launch or unknown lock must not be overwritten. */}}
  try{
   if(owner&&initial==='closed'){const pid=await start(root,env);if(Number.isSafeInteger(pid)&&pid>0)writeFileSync(join(logs,'office-server.json'),JSON.stringify({pid,root,executable:process.execPath,port:env.PORT??'3000',host:env.ERP_OFFICE_BIND??'127.0.0.1'}),{mode:0o600});}
-  for(let i=0;i<attempts;i++){const state=await probe(base);if(state==='ready'){await open(url);return{reused:!owner,url};}if(state==='other')throw Error('시작 중 해당 포트를 다른 프로그램이 사용했습니다. 포트 설정을 확인하세요.');if(state==='unavailable')throw Error('ERP가 시작됐지만 DB 연결을 확인하지 못했습니다. 잠시 후 다시 실행하거나 ERP 점검을 확인하세요.');await wait(1000);}
+  for(let i=0;i<attempts;i++){const state=await probe(base);if(state==='ready'){await open(url);return{reused:!owner,url};}if(state==='error')throw Error('ERP 서버 내부 오류가 발생했습니다. logs/office-server.log를 확인하세요.');if(state==='other')throw Error('시작 중 해당 포트를 다른 프로그램이 사용했습니다. 포트 설정을 확인하세요.');if(state==='unavailable')throw Error('ERP가 시작됐지만 DB 연결을 확인하지 못했습니다. 잠시 후 다시 실행하거나 ERP 점검을 확인하세요.');await wait(1000);}
   throw Error('ERP가 아직 준비되지 않았습니다. logs 폴더의 office-server.log를 확인하고 다시 실행하세요.');
  }finally{if(owner){try{if(JSON.parse(readFileSync(lock,'utf8')).pid===process.pid)unlinkSync(lock);}catch{/* Never remove another launch lock. */}}}
 }

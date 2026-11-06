@@ -20,9 +20,11 @@ with tempfile.TemporaryDirectory(prefix='dongyang-setup-') as tmp:
   source=ROOT/p
   if not source.is_file() or source.is_symlink():continue
   target=payload/p;target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(source,target);manifest.append(name)
- for needed in ['scripts/install-office-runtime.mjs','scripts/install-office-runtime.ps1','package-lock.json','src/lib/auth.ts','prisma/schema.prisma']:
+ for needed in ['scripts/install-office-runtime.mjs','scripts/install-office-runtime.ps1','package-lock.json','src/lib/auth.ts','prisma/schema.prisma','src/app/layout.tsx','src/app/login/page.tsx','src/app/api/health/route.ts','src/app/(workspace)/page.tsx']:
   if needed not in manifest:raise RuntimeError('Required installer payload missing: '+needed)
  assert '.env.office' not in manifest and 'ERP-login.txt' not in manifest
+ checksums={name:hashlib.sha256((payload/name).read_bytes()).hexdigest() for name in manifest}
+ (payload/'installer-checksums.json').write_text(json.dumps(checksums,ensure_ascii=False,indent=2),encoding='utf8')
  # Keep a non-secret, reproducible contents manifest in the installer.
  (payload/'installer-files.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf8')
  subprocess.run([compiler,'-V2',f'-DPAYLOAD={payload}',f'-DOUTPUT={output/"ERP.exe"}',str(ROOT/'installer/setup.nsi')],cwd=ROOT,check=True)

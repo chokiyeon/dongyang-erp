@@ -45,6 +45,15 @@ try {
         $proc = Get-CimInstance Win32_Process -Filter ('ProcessId = ' + [int]$owners[0])
         if (-not $proc.ExecutablePath -or [IO.Path]::GetFileName($proc.ExecutablePath) -ne 'node.exe' -or $proc.CommandLine -notmatch '(?:dist[\\/]bin[\\/]next|next\.js)' -or $proc.CommandLine -notmatch '\bstart\b') { throw '다른 프로그램이 ERP 포트를 사용 중입니다. 그 프로그램은 종료하지 않았습니다.' }
         $recognized = $false
+        # A failed ERP health endpoint must not prevent upgrading our own server.
+        $ownedRecord = Join-Path $Root 'logs\office-server.json'
+        if (Test-Path -LiteralPath $ownedRecord) {
+            try {
+                $owned = Get-Content -LiteralPath $ownedRecord -Raw -Encoding UTF8 | ConvertFrom-Json
+                $expectedScript = Join-Path $Root 'node_modules\next\dist\bin\next'
+                if ([int]$owned.pid -eq [int]$owners[0] -and [IO.Path]::GetFullPath($owned.root) -eq $Root -and $proc.CommandLine.Contains($expectedScript) -and [IO.Path]::GetFullPath($owned.executable) -eq [IO.Path]::GetFullPath($proc.ExecutablePath) -and [string]$owned.port -eq $port) { $recognized = $true }
+            } catch { }
+        }
         foreach ($listener in $listeners) {
             $hostAddress = [string]$listener.LocalAddress
             if ($hostAddress -notmatch '^(127\.0\.0\.1|10\.[\d.]+|192\.168\.[\d.]+|172\.(1[6-9]|2\d|3[01])\.[\d.]+)$') { continue }
@@ -66,6 +75,8 @@ try {
     $info.CreateNoWindow = $true
     $info.RedirectStandardOutput = $true
     $info.RedirectStandardError = $true
+    $info.StandardOutputEncoding = [Text.Encoding]::UTF8
+    $info.StandardErrorEncoding = [Text.Encoding]::UTF8
     $p = New-Object Diagnostics.Process
     $p.StartInfo = $info
     [void]$p.Start()
@@ -80,6 +91,10 @@ try {
     # Do not include configuration or exception values in bootstrap diagnostics.
     $diagnostic = 'ERP_INSTALL_FAILED at line ' + $_.InvocationInfo.ScriptLineNumber + '; category: ' + $_.CategoryInfo.Category
     Write-Output $diagnostic
+    if (Test-Path -LiteralPath (Join-Path $logs 'setup-result.log')) {
+        Write-Output 'Operation details:'
+        Get-Content -LiteralPath (Join-Path $logs 'setup-result.log') -Encoding UTF8 -Tail 20 | Write-Output
+    }
     try { [IO.File]::AppendAllText((Join-Path $logs 'setup-bootstrap.log'), [Environment]::NewLine + $diagnostic) } catch { }
     try { [System.Windows.MessageBox]::Show('설치가 중단되었습니다. 자동으로 열리는 설치 기록을 확인해 주세요. 회사 자료와 DB는 삭제하지 않았습니다.', '동양계전 ERP 설치') | Out-Null } catch { }
     exit 1

@@ -1,3 +1,4 @@
+import {validateInstalledPayload,validateOfficeSources} from './office-build-validation.mjs';
 import {existsSync,mkdirSync,openSync,closeSync,unlinkSync,appendFileSync,readdirSync,writeFileSync,readFileSync} from 'node:fs';
 import {dirname,join,resolve} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
@@ -11,6 +12,8 @@ async function installationSteps({root,env,nodePath=process.execPath,run=spawnSy
  const stage=message=>{writeFileSync(state,message);appendFileSync(log,`\n[${new Date().toISOString()}] ${message}\n`,{mode:0o600});};
  const execute=(label,args)=>{stage(label);const r=run(nodePath,args,{cwd:root,env,encoding:'utf8',windowsHide:true,maxBuffer:32*1024*1024});appendFileSync(log,installerRedact(`${r.stdout??''}\n${r.stderr??''}`,secrets));if(r.error||r.status!==0)throw Error(`${label} 실패. logs/setup.log를 확인하세요. 기존 DB를 초기화하지 않았습니다.`);};
  stage('설치 전 설정 확인');
+ // Validate extracted source before npm or database changes.
+ if(existsSync(join(root,'installer-checksums.json'))){validateInstalledPayload(root);validateOfficeSources(root);}
  if(!env.ERP_PG_BIN_DIR){const folder=join(env.ProgramW6432??env.ProgramFiles??'C:\\Program Files','PostgreSQL/17/bin');if(existsSync(join(folder,'pg_dump.exe'))){env.ERP_PG_BIN_DIR=folder;const file=join(root,'.env.office');const text=readFileSync(file,'utf8'),setting='ERP_PG_BIN_DIR='+JSON.stringify(folder.replaceAll('\\','/'));writeFileSync(file,/^ERP_PG_BIN_DIR=.*$/m.test(text)?text.replace(/^ERP_PG_BIN_DIR=.*$/m,()=>setting):text+'\n'+setting+'\n');}}
  execute('프로그램 구성요소 설치',[npm,'ci','--include=dev','--prefer-offline']);
  const db=await loadDatabase();let tables,migrations;
