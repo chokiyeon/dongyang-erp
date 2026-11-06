@@ -1,7 +1,12 @@
 ﻿param([string]$Root)
 $ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName PresentationFramework
 try {
+    if (-not $Root) { $Root = Split-Path -Parent $PSScriptRoot }
+    $logs = Join-Path $Root 'logs'
+    New-Item -ItemType Directory -Path $logs -Force | Out-Null
+    [IO.File]::WriteAllText((Join-Path $logs 'setup-bootstrap.log'), 'Installer started', (New-Object Text.UTF8Encoding($false)))
+    Add-Type -AssemblyName PresentationFramework
+    . (Join-Path $PSScriptRoot 'office-setup-profile.ps1')
     if (-not $Root) { $Root = Split-Path -Parent $PSScriptRoot }
     $Root = [IO.Path]::GetFullPath($Root)
     $profile = Join-Path $Root '.env.office'
@@ -10,29 +15,18 @@ try {
     $sourceRecord = Join-Path $Root 'logs\install-source.json'
     if (Test-Path -LiteralPath $sourceRecord) { try { $legacy = (Get-Content -LiteralPath $sourceRecord -Raw -Encoding UTF8 | ConvertFrom-Json).legacy } catch { } }
     if (-not (Test-Path -LiteralPath $profile)) {
-        $candidates = @()
-        foreach ($outer in @(Get-ChildItem -LiteralPath $desktop -Directory -Filter 'dongyang-erp-*' -ErrorAction SilentlyContinue)) {
-            if (Test-Path -LiteralPath (Join-Path $outer.FullName '.env.office')) { $candidates += $outer.FullName }
-            foreach ($inner in @(Get-ChildItem -LiteralPath $outer.FullName -Directory -Filter 'dongyang-erp-*' -ErrorAction SilentlyContinue)) {
-                if (Test-Path -LiteralPath (Join-Path $inner.FullName '.env.office')) { $candidates += $inner.FullName }
-            }
-        }
-        $candidates = @($candidates | Select-Object -Unique)
+        $physicalDesktop = Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Desktop'
+        $candidates = @(Get-ErpProfileCandidates -Roots @($desktop, $physicalDesktop))
         if ($candidates.Count -eq 1) { $legacy = $candidates[0] } else {
-            $picker = New-Object Microsoft.Win32.OpenFileDialog
-            $picker.Title = '기존 ERP의 .env.office 설정 파일을 선택하세요. 비밀번호를 다시 입력하지 않습니다.'
-            $picker.InitialDirectory = $desktop
-            $picker.Filter = 'ERP 회사 설정|.env.office|모든 파일|*.*'
-            $picker.FileName = '.env.office'
-            if (-not $picker.ShowDialog()) { exit 2 }
-            if ([IO.Path]::GetFileName($picker.FileName) -ne '.env.office') { throw 'ERP의 .env.office 파일을 선택하세요.' }
-            $legacy = Split-Path -Parent $picker.FileName
+            if (-not (Show-ErpOfficeSetup -Root $Root)) { exit 2 }
         }
+        if ($legacy) {
         [IO.File]::Copy((Join-Path $legacy '.env.office'), $profile, $false)
         New-Item -ItemType Directory -Path (Join-Path $Root 'logs') -Force | Out-Null
         [IO.File]::WriteAllText($sourceRecord, (@{legacy=$legacy} | ConvertTo-Json -Compress), (New-Object Text.UTF8Encoding($false)))
         $login = Join-Path $legacy 'ERP-login.txt'
         if ((Test-Path -LiteralPath $login) -and -not (Test-Path -LiteralPath (Join-Path $Root 'ERP-login.txt'))) { [IO.File]::Copy($login, (Join-Path $Root 'ERP-login.txt'), $false) }
+        }
     }
     $node = (Get-Command node.exe -ErrorAction SilentlyContinue).Source
     if (-not $node) { $node = Join-Path $env:ProgramFiles 'nodejs\node.exe' }
@@ -82,4 +76,11 @@ try {
     [IO.File]::WriteAllText((Join-Path $logs 'setup-result.log'), $output, (New-Object Text.UTF8Encoding($false)))
     if ($p.ExitCode -ne 0) { throw ('설치를 완료하지 못했습니다. 기존 자료는 보존됩니다.' + [Environment]::NewLine + $stderr.Result + [Environment]::NewLine + '로그: ' + (Join-Path $logs 'setup.log')) }
     exit 0
-} catch { [System.Windows.MessageBox]::Show($_.Exception.Message, '동양계전 ERP 설치') | Out-Null; exit 1 }
+} catch {
+    # Do not include configuration or exception values in bootstrap diagnostics.
+    $diagnostic = 'ERP_INSTALL_FAILED at line ' + $_.InvocationInfo.ScriptLineNumber + '; category: ' + $_.CategoryInfo.Category
+    Write-Output $diagnostic
+    try { [IO.File]::AppendAllText((Join-Path $logs 'setup-bootstrap.log'), [Environment]::NewLine + $diagnostic) } catch { }
+    try { [System.Windows.MessageBox]::Show('설치가 중단되었습니다. 자동으로 열리는 설치 기록을 확인해 주세요. 회사 자료와 DB는 삭제하지 않았습니다.', '동양계전 ERP 설치') | Out-Null } catch { }
+    exit 1
+}
