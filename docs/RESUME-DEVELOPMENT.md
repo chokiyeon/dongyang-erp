@@ -302,3 +302,7 @@
 원 차량 비용을 유지한 기간 감액·전액취소·역순 정정 및 차량/공사 복합 정산을 구현했다. 56번째 추가 마이그레이션 적용, 초기화 없음. 전체 단위/DB 236개·차량 집중 21개·관련 화면 9개·lint/타입/빌드·56개 마이그레이션 별도 DB 백업복구 통과. 상세 TRADE-VEHICLE-PERIOD.md.
 
 추가 보완: 청구 연결 현황에도 유효 기간 차액을 반영했다. 원본 기준 대조 오류는 재검토로 표시한다. 급여/예산 출력의 순수 금액 표시를 cash-types.ts로 분리해 클라이언트의 서버 전용 crypto 의존을 제거했다. 전체 238개(/tmp/vehicle-final-full.log), 집중 23개와 후속 수정월 1개, lint 및 Webpack 운영 빌드(/tmp/vehicle-final-build.log) 통과. Turbopack 재빌드는 환경 포트 바인딩 제한으로 실패하여 지원 Webpack 경로로 검증했다. 최종 급여·원본장부·차량/배부 정산 화면 5개(/tmp/vehicle-final-browser.log) 모두 통과. 기존 관련 화면 9개도 통과했다. 다음 비은행 정산은 NONBANK-SETTLEMENT-DESIGN.md 기준으로 연결 범위 전체를 구현해야 한다. DB 검사와 화면 검사는 순차 실행한다. 비은행 상계는 아직 구현하지 않았고 실제 은행 실적에 합산하지 않는다. 공무 제외, 회사 실자료·기관·회사 PC/NAS 미실행.
+
+## 2026-11-06 회사 설치 진행 중 빌드 수정
+
+사용자 Windows PC에서 Node24.22.2/npm11.19.1 설치, ERP 전용 erp 계정·dongyang_erp DB 생성, 암호 로컬 URI 인코딩 설정과 임의 관리자/세션 키 저장, npm ci 및 office:prepare의 57개 migration 성공을 사용자 결과로 확인했다. 비밀번호는 수집하지 않았다. build:office가 --env-file을 Next 작업자 NODE_OPTIONS에 전파하여 실패했다. process.loadEnvFile 후 별도 Node 실행 래퍼로 수정했으며 자식 인자·환경 값·비출력·실패 코드 보존/설정 파일 누락 검사를 통과했다. /tmp/office-worker-lint.log 확인. 사용자에게는 재다운로드 없이 같은 원리의 직접 빌드 명령을 안내한다. DB 재생성 불필요. npm audit 24개 경고는 별도 운영 전 보완 항목이며 --force 업데이트는 안내하지 않았다.

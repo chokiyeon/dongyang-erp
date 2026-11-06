@@ -40,3 +40,7 @@ PostgreSQL 설치 폴더의 도구가 PATH에 없다면 `.env.office`의 `ERP_PG
 7. NAS 공유 권한과 백업 완료, 별도 빈 DB 복구 시험까지 확인한 후 회사 업무 전환을 판단한다. 메인 PC 종료 시 다른 PC의 ERP도 사용할 수 없으므로 퇴근 전 백업을 확인한다.
 
 현재 클라우드에서 검증한 설치 스크립트가 회사의 Windows·팩스 환경에서 실행 검증된 것은 아니다. 설치 화면 오류가 있으면 비밀번호를 가린 오류 내용으로 확인한다.
+
+## Windows 빌드의 env-file 오류
+
+`--env-file= is not allowed in NODE_OPTIONS`가 나오면 DB를 다시 준비하거나 초기화하지 않는다. 회사 빌드는 `scripts/build-office.mjs`가 process.loadEnvFile로 설정을 읽은 뒤 별도 Node 프로세스로 Next 빌드를 실행한다. 자식 실행 인자에 --env-file을 넘기지 않아 빌드 작업자에 해당 옵션이 전파되지 않는다. 로그에 DB 비밀번호나 설정 내용을 출력하지 않는다.
