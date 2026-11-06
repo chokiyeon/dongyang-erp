@@ -1,5 +1,16 @@
 # 개발 재개 기록
 
+## 최신 · 2026-11-06 보험료 대조 완료 / 실제 Windows 설치 EXE 0.2.1
+
+사용자는 수동 폴더 복사를 거부하고 다운로드 후 설치할 수 있는 EXE를 명시 요청했다. NSIS 3.11(공식 Debian 패키지를 /tmp/erp-nsis에 추출, 시스템 설치 안 함)로 실제 Windows GUI PE 설치기 downloads/ERP.exe와 경리용 downloads/Client.exe를 생성했다. 수동 ZIP 안내로 되돌리지 않는다. 사용자의 메인 PC Node24/npm/PG17/ERP전용 DB/환경설정 준비는 앞서 실제 결과로 확인했다.
+
+- 메인 설치기는 LocalAppData/DongyangERP 전용 폴더를 쓰고 바탕화면의 기존 dongyang-erp-* 및 한 단계 안에서 .env.office를 자동 탐색·보존한다. 후보가 불명확하면 GUI 파일 선택. 비밀번호/기존 DB/NAS/원본 폴더를 삭제하지 않는다. 실행 ERP는 Node/명령/실제 로그인 페이지 확인 뒤 사용자 확인을 받고 해당 서버만 종료한다.
+- 구성요소 설치 → 전용 DB 확인 → 기존 DB 백업 → 마이그레이션 → 빌드 → 서버 준비 확인 → 바로가기. 백업/빌드 실패 및 알 수 없는 DB는 중단. 설치 잠금과 비밀값 마스킹. PG 도구는 ProgramW6432/ProgramFiles의 PostgreSQL17 경로를 발견하면 회사 설정에 보존한다. Next 작업자 env-file 오류 회피 유지.
+- NSIS 32비트 런처에서 64비트 Windows PowerShell을 Sysnative로 호출해 Program Files 리다이렉션 문제 방지. 실제 바로가기는 System32 경로. 자동 설치기는 Windows GUI/NSIS 자가 추출 EXE이며 Node/PG 자체가 내장된 오프라인 통합 제품은 아니다. 현재 이미 준비한 메인 PC 업데이트용이다.
+- 설치기 회귀 13개·lint·타입 검사 통과. 실제 PE/NSIS 컴파일 경고 없이 완료, 빌더의 설정/자료 제외 확인 및 SHA256 생성. Windows에서 실제 설치 GUI·레거시 탐색·UAC/프로세스 종료·파일 이관·실행은 아직 검증하지 못했으며 오류 없음을 보증하지 않는다. 디지털 코드 서명 없음. docs/WINDOWS-INSTALLER.md 참고.
+- 연금/건강 CSV 8개와 통합문서2.xlsx 대조를 별도 작업으로 완료: /workspace/artifacts/check.xlsx. 빨간102셀(금액 불일치), 노란114셀(자료 없어 확인 필요), 대조결과 시트 추가. 연금 총결정보험료/2, 건강·요양 정산 포함 고지보험료, 이름+마스킹 해제된 식별정보 일치만 사용. 원본 수식·수식 캐시·금액·원본 XML은 스타일 외 동일 검증. 작업/원본/식별자료는 /workspace/scratch/insurance 및 /workspace/attachments에만 있으며 ERP Git/설치기에 포함하지 않는다. 파일 링크는 commentary로 이미 제공했다.
+
+
 ## 최신 · 2026-11-06 v0.2.0 윈도우 실행기·회사 사업자 정보·경리 PC 연결
 
 사용자 요청 3개: 매일 cmd/npm 대신 윈도우 앱 아이콘으로 연결, 사업자등록증 회사 정보 입력, 경리 PC에서도 접속. 사용자 확인 메인 IP 192.168.0.12. 회사 PC의 기존 소스는 8e108c3에 수동 CSS/8자 암호 패치를 적용한 상태이고 새 기능은 아직 그 PC에 적용되지 않았다.

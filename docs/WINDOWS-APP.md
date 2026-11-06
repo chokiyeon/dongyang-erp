@@ -13,3 +13,5 @@
 업데이트 시 기존 ERP 실행을 중지하고 검증된 배포본의 소스 파일을 기존 프로그램 폴더에 덮어쓴다. .env.office·ERP-login.txt·기존 DB·NAS 원본·backups는 보존한다. 새 소스만 들어 있는 배포본에는 이 개인 설정 파일이 없다. 회사 정보 필드 추가는 새 마이그레이션이므로 ERP-install.cmd 또는 npm ci → npm run office:prepare → npm run build:office를 거쳐야 한다.
 
 경리 PC에는 Node.js나 PostgreSQL을 별도로 설치하지 않는다. 배포본의 client 폴더만 경리 PC에서 열고 ERP-Client-install.cmd를 실행해 메인 PC 주소 192.168.0.12를 입력하면 경리 PC 바탕화면에 연결 아이콘을 만든다. 비밀번호·DB 접속 설정을 client 폴더로 복사하지 않는다. 연결 아이콘은 Edge/Chrome 앱 창으로 메인 PC에 접속하며 메인 PC 서버를 원격으로 켜지 않는다. 메인 PC가 꺼져 있으면 업무할 수 없다.
+
+0.2.1부터 프로그램 파일 수동 복사 대신 downloads/ERP.exe 설치·업데이트를 사용한다. 경리 PC는 downloads/Client.exe로 연결 아이콘을 만들 수 있다. 두 EXE는 Node/DB를 내장한 독립 ERP가 아니라 준비된 메인 PC 환경을 사용하는 네이티브 설치기다. 상세 절차는 WINDOWS-INSTALLER.md.
