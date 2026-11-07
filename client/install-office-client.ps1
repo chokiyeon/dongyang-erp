@@ -30,5 +30,15 @@ try {
     $shortcut.Description = 'DongyangERP-client'
     $shortcut.IconLocation = $browser + ',0'
     $shortcut.Save()
-    [System.Windows.MessageBox]::Show(('바탕화면에 경리 PC용 ERP 아이콘을 만들었습니다.' + [Environment]::NewLine + '메인 PC에서 ERP가 켜져 있어야 연결됩니다.' + [Environment]::NewLine + $url), '동양계전 ERP') | Out-Null
+    $nasPath = Join-Path ([Environment]::GetFolderPath('Desktop')) '동양계전 ERP 공유폴더.lnk'
+    if (Test-Path -LiteralPath $nasPath) {
+        $oldNas = $shell.CreateShortcut($nasPath)
+        if ($oldNas.Description -ne 'DongyangERP-NAS') { throw '공유폴더 바로가기와 같은 이름의 다른 파일이 있습니다. 변경하지 않았습니다.' }
+    }
+    $nas = $shell.CreateShortcut($nasPath)
+    $nas.TargetPath = Join-Path $env:SystemRoot 'explorer.exe'
+    $nas.Arguments = '"\\192.168.0.250\work\동양계전ERP"'
+    $nas.Description = 'DongyangERP-NAS'
+    $nas.Save()
+    [System.Windows.MessageBox]::Show(('바탕화면에 경리 PC용 ERP와 NAS 공유폴더 아이콘을 만들었습니다.' + [Environment]::NewLine + '메인 PC에서 ERP가 켜져 있어야 연결됩니다.' + [Environment]::NewLine + $url + [Environment]::NewLine + 'NAS 로그인은 윈도우에서 직접 진행하세요. NAS 비밀번호는 ERP에 저장하지 않습니다.'), '동양계전 ERP') | Out-Null
 } catch { [System.Windows.MessageBox]::Show($_.Exception.Message, '동양계전 ERP') | Out-Null; exit 1 }
