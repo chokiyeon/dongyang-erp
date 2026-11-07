@@ -26,7 +26,7 @@ test('다른 시작 요청의 잠금과 윈도우 스크립트의 텍스트 형�
  const root=fixture();try{mkdirSync(join(root,'logs'));const lock=join(root,'logs/office-start.lock');writeFileSync(lock,JSON.stringify({pid:process.pid}));let started=0;await assert.rejects(ensureOffice({root,env,probe:async()=> 'closed',start:async()=>{started++;},wait:async()=>{},attempts:1}),/준비되지/);assert.equal(started,0);assert.equal(existsSync(lock),true);
  }finally{rmSync(root,{recursive:true,force:true});}
  for(const name of ['ERP-start.cmd','ERP-install.cmd','ERP-check.cmd','ERP-App-install.cmd','ERP-LAN-setup.cmd']){const bytes=readFileSync(name);assert.equal(bytes.some(v=>v>127),false,name);assert.equal(bytes.toString().replaceAll('\r\n','').includes('\n'),false,name);}
- for(const name of ['open-office-app.ps1','install-office-app.ps1','stop-office-app.ps1','configure-office-lan.ps1'])assert.deepEqual([...readFileSync(join('scripts',name)).subarray(0,3)],[239,187,191],name);
+ for(const name of ['open-office-app.ps1','office-launcher-process.ps1','install-office-app.ps1','stop-office-app.ps1','configure-office-lan.ps1'])assert.deepEqual([...readFileSync(join('scripts',name)).subarray(0,3)],[239,187,191],name);
 });
 
 test('서버의 일반 HTTP 500 응답은 포트 충돌로 판단하지 않는다',async()=>{assert.equal(await probeOffice('http://127.0.0.1',async()=>new Response('Internal Server Error',{status:500})),'error');const root=fixture();try{let started=false;await assert.rejects(ensureOffice({root,env,probe:async()=> 'error',start:async()=>{started=true;}}),/서버 내부 오류/);assert.equal(started,false);}finally{rmSync(root,{recursive:true,force:true});}});

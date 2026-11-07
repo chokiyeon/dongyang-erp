@@ -29,8 +29,9 @@ with tempfile.TemporaryDirectory(prefix='dongyang-setup-') as tmp:
  (payload/'installer-files.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf8')
  subprocess.run([compiler,'-V2',f'-DPAYLOAD={payload}',f'-DOUTPUT={output/"ERP.exe"}',str(ROOT/'installer/setup.nsi')],cwd=ROOT,check=True)
  subprocess.run([compiler,'-V2',f'-DCLIENT_SOURCE={ROOT/"client/install-office-client.ps1"}',f'-DOUTPUT={output/"Client.exe"}',str(ROOT/'installer/client.nsi')],cwd=ROOT,check=True)
- for name in ['ERP.exe','Client.exe']:
+ subprocess.run([compiler,'-V2',f'-DSOURCE={ROOT}',f'-DOUTPUT={output/"ERP-Launcher-Fix.exe"}',str(ROOT/'installer/launcher-repair.nsi')],cwd=ROOT,check=True)
+ for name in ['ERP.exe','Client.exe','ERP-Launcher-Fix.exe']:
   p=output/name
   if p.read_bytes()[:2]!=b'MZ':raise RuntimeError('Not a Windows executable: '+name)
   print(f'{name}: {p.stat().st_size:,} bytes SHA256 {hashlib.sha256(p.read_bytes()).hexdigest()}')
- (output/'SHA256.txt').write_text('\n'.join(hashlib.sha256((output/name).read_bytes()).hexdigest()+'  '+name for name in ['ERP.exe','Client.exe'])+'\n',encoding='ascii')
+ (output/'SHA256.txt').write_text('\n'.join(hashlib.sha256((output/name).read_bytes()).hexdigest()+'  '+name for name in ['ERP.exe','Client.exe','ERP-Launcher-Fix.exe'])+'\n',encoding='ascii')

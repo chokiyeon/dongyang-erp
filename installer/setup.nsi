@@ -17,11 +17,11 @@ InstallDirRegKey HKCU "Software\DongyangERP" "InstallDir"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
 ShowInstDetails show
-VIProductVersion "0.2.4.0"
+VIProductVersion "0.2.5.0"
 VIAddVersionKey /LANG=1042 "ProductName" "동양계전 ERP"
 VIAddVersionKey /LANG=1042 "FileDescription" "동양계전 ERP 설치 및 업데이트"
-VIAddVersionKey /LANG=1042 "FileVersion" "0.2.4"
-VIAddVersionKey /LANG=1042 "ProductVersion" "0.2.4"
+VIAddVersionKey /LANG=1042 "FileVersion" "0.2.5"
+VIAddVersionKey /LANG=1042 "ProductVersion" "0.2.5"
 VIAddVersionKey /LANG=1042 "LegalCopyright" "Dongyang ERP"
 !define MUI_ABORTWARNING
 !define MUI_WELCOMEPAGE_TEXT "메인 PC의 ERP를 설치하거나 업데이트합니다.$\r$\n$\r$\n기존 비밀번호와 DB 설정은 자동으로 찾아 보존합니다. 폴더를 직접 복사할 필요가 없습니다.$\r$\n$\r$\n현재 메인 PC에 설치된 Node.js 24와 PostgreSQL 17, 인터넷 연결을 사용합니다. 구성요소 설치와 화면 생성에 몇 분이 걸릴 수 있습니다."
@@ -59,7 +59,7 @@ Section "ERP 설치" SEC01
  DetailPrint "기존 설정 확인 · 구성요소 설치 · DB 백업 · 업데이트 · 실행 확인 중입니다. 잠시 기다려 주세요."
  StrCpy $SetupLog "$DESKTOP\ERP-install.log"
  FileOpen $2 "$SetupLog" w
- FileWrite $2 "Dongyang ERP 0.2.4$\r$\nInstall: $INSTDIR$\r$\nPowerShell: $NativePS$\r$\n"
+ FileWrite $2 "Dongyang ERP 0.2.5$\r$\nInstall: $INSTDIR$\r$\nPowerShell: $NativePS$\r$\n"
  FileClose $2
  Delete "$INSTDIR\logs\setup-current-error.txt"
  nsExec::ExecToStack '"$NativePS" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$INSTDIR\scripts\install-office-runtime.ps1" -Root "$INSTDIR"'
@@ -83,7 +83,7 @@ Section "ERP 설치" SEC01
  WriteRegStr HKCU "Software\DongyangERP" "InstallDir" "$INSTDIR"
  WriteUninstaller "$INSTDIR\Uninstall.exe"
  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DongyangERP" "DisplayName" "동양계전 ERP"
- WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DongyangERP" "DisplayVersion" "0.2.4"
+ WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DongyangERP" "DisplayVersion" "0.2.5"
  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DongyangERP" "InstallLocation" "$INSTDIR"
  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DongyangERP" "UninstallString" '"$INSTDIR\Uninstall.exe"'
  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DongyangERP" "NoModify" 1

@@ -10,13 +10,19 @@ try {
     $stdout = Join-Path $logs ('app-' + $id + '.log')
     $stderr = Join-Path $logs ('app-' + $id + '.error.log')
     $entry = Join-Path $root 'scripts\office-desktop.mjs'
-    $p = Start-Process -FilePath $node -ArgumentList ('"' + $entry + '"') -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-    $p.WaitForExit()
-    if ($p.ExitCode -ne 0) {
+    . (Join-Path $PSScriptRoot 'office-launcher-process.ps1')
+    $result = Invoke-ErpLauncherProcess -Executable $node -Entry $entry -WorkingDirectory $root
+    $encoding = New-Object Text.UTF8Encoding($true)
+    [IO.File]::WriteAllText($stdout, $result.Stdout, $encoding)
+    [IO.File]::WriteAllText($stderr, $result.Stderr, $encoding)
+    if ($result.ExitCode -ne 0) {
         Add-Type -AssemblyName PresentationFramework
-        $detail = if (Test-Path -LiteralPath $stderr) { (Get-Content -LiteralPath $stderr -Raw -Encoding UTF8) } else { '' }
+        $detail = $result.Stderr.Trim()
+        if (-not $detail) { $detail = '실행기가 종료 코드 ' + $result.ExitCode + '을 반환했습니다. 출력 로그: ' + $stdout }
         [System.Windows.MessageBox]::Show(('ERP를 열지 못했습니다.' + [Environment]::NewLine + $detail + [Environment]::NewLine + '로그 위치: ' + $stderr), 'Dongyang ERP') | Out-Null
+        exit 1
     }
+    exit 0
 } catch {
     Add-Type -AssemblyName PresentationFramework
     [System.Windows.MessageBox]::Show($_.Exception.Message, 'Dongyang ERP') | Out-Null
