@@ -1,9 +1,10 @@
+import {createServer} from 'node:net';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,writeFileSync,rmSync,existsSync,readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-import {desktopAddress,probeOffice,browserCommand,ensureOffice} from '../scripts/office-desktop.mjs';
+import {desktopAddress,probeOffice,browserCommand,ensureOffice,checkLocalOfficePort} from '../scripts/office-desktop.mjs';
 const env={ERP_OFFICE_MODE:'true',ERP_OFFICE_BIND:'192.168.0.12',PORT:'3000',ERP_ADMIN_PASSWORD:'Abc!2468',ERP_SESSION_SECRET:'synthetic-long-session-secret-at-least-32',ERP_COOKIE_SECURE:'false',DATABASE_URL:'postgresql://erp:synthetic-secret@127.0.0.1/erp'};
 function fixture(){const root=mkdtempSync(join(tmpdir(),'erp-desktop-'));mkdirSync(join(root,'.next'));writeFileSync(join(root,'.next/BUILD_ID'),'synthetic');mkdirSync(join(root,'node_modules/next/dist/bin'),{recursive:true});writeFileSync(join(root,'node_modules/next/dist/bin/next'),'');return root;}
 test('윈도우 앱 주소와 전용 창 인자는 사내 주소·포트만 사용한다',()=>{assert.equal(desktopAddress(env),'http://192.168.0.12:3000');assert.throws(()=>desktopAddress({...env,ERP_OFFICE_BIND:'0.0.0.0'}));assert.throws(()=>desktopAddress({...env,PORT:'3000 & calc'}));const edge=browserCommand('http://192.168.0.12:3000/login',{NODE_ENV:'test',ProgramFiles:'C:\\Program Files'},()=>true);assert.deepEqual(edge.args,['--app=http://192.168.0.12:3000/login','--new-window']);assert.equal(browserCommand('http://127.0.0.1:3000/login',{NODE_ENV:'test'},()=>false).exe,'rundll32.exe');});
@@ -30,3 +31,13 @@ test('다른 시작 요청의 잠금과 윈도우 스크립트의 텍스트 형�
 });
 
 test('서버의 일반 HTTP 500 응답은 포트 충돌로 판단하지 않는다',async()=>{assert.equal(await probeOffice('http://127.0.0.1',async()=>new Response('Internal Server Error',{status:500})),'error');const root=fixture();try{let started=false;await assert.rejects(ensureOffice({root,env,probe:async()=> 'error',start:async()=>{started=true;}}),/서버 내부 오류/);assert.equal(started,false);}finally{rmSync(root,{recursive:true,force:true});}});
+
+test('Windows 연결거절 지연으로 HTTP 확인이 busy여도 로컬 포트가 비었으면 서버를 시작한다',async()=>{
+ const root=fixture();try{let ready=false,started=0;const result=await ensureOffice({root,env,probe:async()=>ready?'ready':'busy',portCheck:async()=> 'free',start:async()=>{started++;ready=true;return 123;},open:async()=>{},wait:async()=>{},attempts:2});assert.equal(started,1);assert.equal(result.reused,false);}finally{rmSync(root,{recursive:true,force:true});}
+});
+test('응답 없는 다른 서비스가 포트를 점유하면 새 서버를 시작하지 않는다',async()=>{
+ const root=fixture();try{let started=false;await assert.rejects(ensureOffice({root,env,probe:async()=> 'busy',portCheck:async()=> 'occupied',start:async()=>{started=true;},open:async()=>{},wait:async()=>{},attempts:1}),/준비되지/);assert.equal(started,false);}finally{rmSync(root,{recursive:true,force:true});}
+});
+test('로컬 포트 확인은 실제 점유와 사용 가능한 포트를 구분한다',async()=>{
+ const server=createServer();await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const a=server.address();assert.ok(a&&typeof a!=='string');const base='http://127.0.0.1:'+a.port;try{assert.equal(await checkLocalOfficePort(base),'occupied');}finally{await new Promise<void>((r,j)=>server.close(e=>e?j(e):r()));}assert.equal(await checkLocalOfficePort(base),'free');
+});

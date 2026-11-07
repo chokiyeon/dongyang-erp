@@ -2,6 +2,7 @@ import {existsSync,mkdirSync,openSync,closeSync,writeFileSync,readFileSync,unlin
 import {join,dirname,resolve} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {spawn} from 'node:child_process';
+import {createServer} from 'node:net';
 import {validateOfficeServer} from './office-server-config.mjs';
 export function desktopAddress(env){const errors=validateOfficeServer(env);if(errors.length)throw Error(errors.join('\n'));if(env.ERP_COOKIE_SECURE!=='false')throw Error('회사 앱의 HTTP 접속에는 ERP_COOKIE_SECURE=false 설정을 확인하세요.');return `http://${env.ERP_OFFICE_BIND??'127.0.0.1'}:${env.PORT??'3000'}`;}
 export async function probeOffice(base,fetcher=fetch){
@@ -14,6 +15,20 @@ export async function probeOffice(base,fetcher=fetch){
  if(!identified&&['ok','unavailable'].includes(data?.status)){try{const login=await fetcher(`${base}/login`,{redirect:'manual',signal:AbortSignal.timeout(2000),cache:'no-store'});identified=(await login.text()).includes('동양계전 ERP 로그인');}catch{/* Listener could be another application. */}}
  if(!identified)return 'other';return response.ok&&data.status==='ok'?'ready':'unavailable';
 }
+// Windows may take slightly over two seconds to reject a TCP connection.
+// An HTTP timeout alone must not leave a stopped ERP waiting without starting.
+export function checkLocalOfficePort(base){
+ const url=new URL(base),host=url.hostname,port=Number(url.port||80);
+ return new Promise((resolve,reject)=>{
+  const server=createServer();
+  server.once('error',error=>{
+   if(error.code==='EADDRINUSE')resolve('occupied');
+   else if(error.code==='EADDRNOTAVAIL')reject(Error('설정한 ERP 주소가 이 메인 PC에 없습니다. 사내 접속 설정에서 실제 IPv4 주소를 확인하세요.'));
+   else reject(Error('ERP 포트의 시작 가능 여부를 확인하지 못했습니다. 네트워크·권한 설정을 확인하세요.'));
+  });
+  server.listen({host,port,exclusive:true},()=>server.close(()=>resolve('free')));
+ });
+}
 export function browserCommand(url,env=process.env,present=existsSync){
  const paths=[join(env['ProgramFiles(x86)']??'C:\\Program Files (x86)','Microsoft/Edge/Application/msedge.exe'),join(env.ProgramFiles??'C:\\Program Files','Microsoft/Edge/Application/msedge.exe'),join(env.ProgramFiles??'C:\\Program Files','Google/Chrome/Application/chrome.exe'),join(env.LOCALAPPDATA??'','Google/Chrome/Application/chrome.exe')];
  const exe=paths.find(present);return exe?{exe,args:[`--app=${url}`,'--new-window']}:{exe:'rundll32.exe',args:['url.dll,FileProtocolHandler',url]};
@@ -25,8 +40,9 @@ function startServer(root,env){
  return new Promise((resolve,reject)=>{child.once('error',reject);child.once('spawn',()=>{child.unref();resolve(child.pid);});});
 }
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
-export async function ensureOffice({root,env,probe=probeOffice,start=startServer,open=launchWindow,wait=delay,attempts=60}){
- const base=desktopAddress(env),url=`${base}/login`;const initial=await probe(base);
+export async function ensureOffice({root,env,probe=probeOffice,start=startServer,open=launchWindow,wait=delay,attempts=60,portCheck=checkLocalOfficePort}){
+ const base=desktopAddress(env),url=`${base}/login`;let initial=await probe(base);
+ if(initial==='busy'&&await portCheck(base)==='free')initial='closed';
  if(initial==='ready'){await open(url);return{reused:true,url};}
  if(initial==='error')throw Error('ERP 확인 주소에서 서버 내부 오류(500)가 발생했습니다. 다른 프로그램의 포트 사용으로 확인된 것은 아닙니다. logs/office-server.log를 확인하세요.');
  if(initial==='other')throw Error('설정한 포트에서 다른 프로그램이 실행 중입니다. 기존 프로그램을 종료하지 않았습니다. 포트 설정을 확인하세요.');
