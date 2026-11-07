@@ -85,7 +85,9 @@ try {
     $p.WaitForExit()
     $output = $stdout.Result + [Environment]::NewLine + $stderr.Result
     [IO.File]::WriteAllText((Join-Path $logs 'setup-result.log'), $output, (New-Object Text.UTF8Encoding($false)))
-    if ($p.ExitCode -ne 0) { throw ('설치를 완료하지 못했습니다. 기존 자료는 보존됩니다.' + [Environment]::NewLine + $stderr.Result + [Environment]::NewLine + '로그: ' + (Join-Path $logs 'setup.log')) }
+    if ($p.ExitCode -ne 0) {
+        [IO.File]::WriteAllText((Join-Path $logs 'setup-current-error.txt'), $output, (New-Object Text.UTF8Encoding($true)))
+        throw ('설치를 완료하지 못했습니다. 기존 자료는 보존됩니다.' + [Environment]::NewLine + $stderr.Result + [Environment]::NewLine + '로그: ' + (Join-Path $logs 'setup.log')) }
     exit 0
 } catch {
     # Do not include configuration or exception values in bootstrap diagnostics.

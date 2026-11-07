@@ -1,4 +1,4 @@
-# 윈도우 설치 EXE · 0.2.3
+# 윈도우 설치 EXE · 0.2.4
 
 현재 회사 메인 PC처럼 Node.js 24·npm·PostgreSQL 17·ERP 전용 DB와 회사 설정이 준비된 환경을 대상으로 한다. 프로그램 파일을 직접 복사하지 않고 downloads/ERP.exe를 실행한다. 프로그램은 현재 사용자의 LocalAppData/DongyangERP 전용 폴더에 설치된다.
 
@@ -19,3 +19,5 @@ NSIS에서 실제 Windows PE 설치 파일로 컴파일했다. 자동 백업·�
 재현 빌드: NSIS 3.11 이상으로 scripts/build-windows-installers.py를 실행한다. 설치기에 로컬 .env.office/ERP-login.txt/DB/업로드 자료/로그/기존 EXE를 넣지 않으며 공개 소스 파일 목록을 포함한다. downloads/SHA256.txt로 생성 파일 무결성을 대조할 수 있다.
 
 0.2.3: EXE 압축 해제 파일의 SHA-256과 필수 화면 소스를 DB 변경 전에 대조한다. 빌드 뒤 로그인·상태 확인·설정·근무자료 입력 화면이 app-paths-manifest에 존재하는지 확인한다. 404만 생성된 빌드는 실패 처리한다. 일반 HTTP 500은 포트 충돌로 단정하지 않으며, 자기 설치가 시작한 서버는 저장 PID·실행 파일·실행 경로·포트를 대조해 사용자 확인 후 종료할 수 있다. PowerShell은 Node 출력의 UTF-8을 명시해 한글 진단의 손상을 막는다.
+
+0.2.4: 회사 PC에서 확인된 루트 app 폴더와 src/app의 충돌을 복구한다. Next.js는 app을 우선 선택해 빈 루트 app이 있으면 실제 ERP 화면 대신 404만 빌드할 수 있다. 설치 원본 체크섬과 필수 소스가 검증된 경우에만 루트 app/pages 디렉터리를 backups/source-layout/<고유 시각>/ 아래로 이동 보존하고 정상 src/app을 빌드한다. 심볼릭 링크나 디렉터리가 아닌 충돌 경로는 자동 이동하지 않는다. 기존 폴더의 생성 원인은 아직 확인되지 않았다. 정상 화면 매니페스트 검사는 계속 유지한다. 실패 시 PowerShell 콘솔을 경유해 글자가 깨진 요약 대신 UTF-8 BOM 오류 원문을 바탕화면 ERP-error.txt로 복사해 연다.

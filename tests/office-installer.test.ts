@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync,existsSync} from 'node:fs';
@@ -11,3 +12,13 @@ test('EXE 설치는 기존 DB 백업 뒤 준비·빌드·실행확인·바로가
 test('DB 백업 실패·알 수 없는 DB·빌드 실패 시 다음 변경 단계와 바로가기를 실행하지 않는다',async()=>{for(const mode of ['backup','unknown','build']){const{root,node}=setup();try{const calls:string[][]=[];let verify=false;await assert.rejects(runOfficeInstallation({root,env:{...config},nodePath:node,run:(_n:string,args:string[])=>{calls.push(args);return{status:mode==='backup'&&args[0]==='scripts/database-transfer.mjs'||mode==='build'&&args.includes('build:office')?1:0,stdout:'',stderr:'synthetic failure'};},loadDatabase:async()=>database(true,mode==='unknown'),verifyServer:async()=>{verify=true;}}));assert.equal(verify,false);assert.equal(calls.some(a=>a[0]==='scripts/install-office-shortcuts.mjs'),false);if(mode==='backup'||mode==='unknown')assert.equal(calls.some(a=>a[0]==='scripts/prepare-office.mjs'),false);}finally{rmSync(root,{recursive:true,force:true});}}});
 test('새 빈 DB는 기존 백업이 필요 없으며 설정 검증 실패는 npm 실행 전 중단한다',async()=>{const{root,node}=setup();try{const calls:string[][]=[];const args={root,env:{...config},nodePath:node,run:(_n:string,a:string[])=>{calls.push(a);return{status:0,stdout:'',stderr:''};},loadDatabase:async()=>database(false),verifyServer:async()=>{}};await runOfficeInstallation(args);assert.equal(calls.some(a=>a[0]==='scripts/database-transfer.mjs'),false);calls.length=0;await assert.rejects(runOfficeInstallation({...args,env:{...config,ERP_ADMIN_PASSWORD:'short'}}));assert.equal(calls.length,0);assert.equal(existsSync(join(root,'.env.office')),true);}finally{rmSync(root,{recursive:true,force:true});}});
 test('설치 로그는 접속 URL과 관리자 암호·세션 키를 마스킹한다',()=>{const text=installerRedact(config.DATABASE_URL+' '+config.ERP_ADMIN_PASSWORD+' '+config.ERP_SESSION_SECRET,config);assert.equal(text.includes('synthetic'),false);});
+
+test('실제 설치 흐름은 화면 소스 충돌을 npm 및 DB 작업 전에 보존 복구한다',async()=>{
+ const {root,node}=setup();try{
+  const expected:Record<string,string>={};
+  for(const file of ['src/app/layout.tsx','src/app/login/page.tsx','src/app/api/health/route.ts','src/app/(workspace)/page.tsx']){mkdirSync(join(root,file,'..'),{recursive:true});writeFileSync(join(root,file),'verified');expected[file]=createHash('sha256').update('verified').digest('hex');}
+  writeFileSync(join(root,'installer-checksums.json'),JSON.stringify(expected));mkdirSync(join(root,'app'));writeFileSync(join(root,'app/original.txt'),'preserve');
+  let checked=false;await runOfficeInstallation({root,env:{...config},nodePath:node,run:()=>{assert.equal(existsSync(join(root,'app')),false);checked=true;return{status:0,stdout:'',stderr:''};},loadDatabase:async()=>database(false),verifyServer:async()=>{}});
+  assert.equal(checked,true);assert.match(readFileSync(join(root,'logs/setup.log'),'utf8'),/화면 소스 충돌 정리/);assert.equal(readFileSync(join(root,'.env.office'),'utf8'),'synthetic profile kept intact');
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
